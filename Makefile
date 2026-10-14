@@ -9,7 +9,7 @@ ASFLAGS := -f elf32
 LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 
 BUILD   := build
-KERNEL  := $(BUILD)/vesper.elf
+KERNEL  := $(BUILD)/testarossa.elf
 
 ASM_SRC := $(wildcard boot/*.asm)
 C_SRC   := $(wildcard kernel/*.c)

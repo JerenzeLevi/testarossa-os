@@ -1,6 +1,6 @@
-# Vesper OS
+# Testarossa OS
 
-A from-scratch 32-bit x86 teaching operating system written in C and NASM.
+A from-scratch 32-bit x86 educational operating system written in C and NASM.
 Runs in QEMU.
 
 ## Build and run
@@ -9,7 +9,7 @@ Inside WSL2 (Ubuntu):
 
 ```sh
 sudo apt install -y nasm qemu-system-x86 make gcc
-make            # builds build/vesper.elf
+make            # builds build/testarossa.elf
 make run        # boots it in QEMU, serial output goes to the terminal
 ```
 
