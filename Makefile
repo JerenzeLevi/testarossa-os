@@ -11,10 +11,9 @@ LDFLAGS := -m elf_i386 -T linker.ld -nostdlib
 BUILD   := build
 KERNEL  := $(BUILD)/testarossa.elf
 
-ASM_SRC := $(wildcard boot/*.asm)
+ASM_SRC := $(wildcard boot/*.asm) $(wildcard kernel/*.asm)
 C_SRC   := $(wildcard kernel/*.c)
-OBJS    := $(patsubst boot/%.asm,$(BUILD)/%.o,$(ASM_SRC)) \
-           $(patsubst kernel/%.c,$(BUILD)/%.o,$(C_SRC))
+OBJS    := $(addprefix $(BUILD)/,$(notdir $(ASM_SRC:.asm=.o) $(C_SRC:.c=.o)))
 
 .PHONY: all run clean
 
@@ -22,6 +21,9 @@ all: $(KERNEL)
 
 $(KERNEL): $(OBJS) linker.ld | $(BUILD)
 	$(LD) $(LDFLAGS) -o $@ $(OBJS)
+
+$(BUILD)/%.o: kernel/%.asm | $(BUILD)
+	$(AS) $(ASFLAGS) $< -o $@
 
 $(BUILD)/%.o: boot/%.asm | $(BUILD)
 	$(AS) $(ASFLAGS) $< -o $@

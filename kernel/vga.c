@@ -34,6 +34,11 @@ void vga_putc(char c) {
     if (c == '\n') {
         col = 0;
         row++;
+    } else if (c == '\b') {
+        if (col > 0) {
+            col--;
+            vga_buf[row * VGA_WIDTH + col] = (uint16_t)(' ' | (VGA_COLOR << 8));
+        }
     } else {
         vga_buf[row * VGA_WIDTH + col] = (uint16_t)((unsigned char)c | (VGA_COLOR << 8));
         if (++col == VGA_WIDTH) {
