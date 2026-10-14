@@ -19,6 +19,10 @@ README.md (build and run).
 | 4 | Shell (help, about, version, clear, echo) | this commit | pass | pass (serial + screen) | pass | PASS |
 | 5 | Timer (100 Hz) and uptime command | this commit | pass | pass (serial) | pass | PASS |
 | 6 | Exception path (fault-test build) | this commit | pass | pass (serial) | n/a | PASS |
+| 7 | Dark cyber-gothic text palette | next commit | pass | pass (screen) | n/a | PASS |
+| 8 | Physical memory allocator, PMM self-test, `mem` | next commit | pass | pass (serial) | pass | PASS |
+| 9 | RAM filesystem, `ls`, `cat` | next commit | pass | pass (serial + screen) | pass | PASS |
+| 10 | Backspace across a wrapped line | next commit | n/a | pass (screen) | **BUG** | KNOWN BUG, left for tester challenge D2 |
 
 ---
 
@@ -76,9 +80,59 @@ README.md (build and run).
 
 ---
 
+## Entry 7 - Dark cyber-gothic text palette (next commit)
+
+- Changed from light magenta on black (the old Vesper look) to the palette in
+  DESIGN.md section 3.1: body light grey, prompt and focus light cyan,
+  banner and errors light magenta, version dark grey. Background black.
+- Build: pass. Checked by screenshots `docs/screenshots/shell-errors-help.png`:
+  prompt cyan, error lines magenta, body grey.
+- Serial output is unchanged (colour does not reach serial).
+- Exception output also uses the accent colour (checked with `make fault-test`).
+
+## Entry 8 - Physical memory allocator and `mem` (next commit)
+
+- `pmm_init` reads the Multiboot map (bit 6 of the boot info flags). QEMU
+  default run: `PMM: memory map read, 129856 KiB free`.
+- Self-test at boot: 256 frames allocated, checked for alignment, uniqueness,
+  and being above the kernel; freed; a double free was checked to change nothing;
+  the free count was checked to return to the start. Result: PASS on every boot tested.
+- `mem` in the shell: `usable 130556 KiB`, `free 129856 KiB`, `in use 700 KiB`.
+  The "in use" value is the 640 KiB of low memory plus the kernel image.
+- Known limitation: "usable" is the bootloader's figure and includes the low
+  memory that the allocator reserves, so it is not the same as the free-RAM count.
+- Not yet tested: a machine without a memory map (the fallback path). It can be
+  checked only by building a Multiboot test that clears the flag.
+
+## Entry 9 - RAM filesystem, `ls`, `cat` (next commit)
+
+- Three built-in files: `/readme.txt`, `/archive/entry01.txt`, `/system/about.txt`.
+- `ls` prints the three paths and `3 files`.
+- `cat` prints each file (checked by screen capture `shell-cat.png`).
+- Errors: `cat /nope.txt` gives "no such file". `cat` alone gives the usage line.
+  Both are in the accent colour.
+- Trailing spaces after a path are removed before lookup.
+
+## Entry 10 - Backspace across a wrapped line (known bug)
+
+- Reproduced in QEMU with `scratchpad/drive_d2.py`-style input: 100 letters
+  (wrap past column 80), then 50 Backspaces, then `z`.
+- Result: the screen still shows the first 68 letters and `z` is placed at the
+  start of row 2. Expected: the line shows 50 letters then `z`.
+- Cause (from reading `vga_putc`): Backspace at column 0 does nothing, so it
+  does not move back to the end of the previous row. The shell's line length
+  still goes down, so the screen and the line buffer disagree.
+- Status: left unfixed on purpose. It is debug challenge D2 in `to-test.txt`.
+  Fix it in a separate commit and record it here.
+- Screenshot: `docs/screenshots/bug-backspace-wrap.png`.
+
+---
+
 ## Open items (not yet verified)
 
 - Real PS/2 keyboard hardware (only tested through the QEMU monitor).
 - Exception paths other than divide error (page fault, general protection).
 - Long-run stability (hours of uptime). Tick counter wraps after about 497 days.
-- Memory management, RAMFS, framebuffer, desktop: not built yet.
+- Memory map fallback path (no bootloader map).
+- Backspace across a wrapped line: known bug, see Entry 10.
+- Paging, heap, framebuffer, desktop: not built yet.

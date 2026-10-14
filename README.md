@@ -5,12 +5,16 @@ freestanding C and NASM. It boots in QEMU, prints to the screen and serial
 port, handles interrupts, reads the keyboard, runs a small shell, and will
 grow into a cyber-gothic desktop.
 
-![Shell showing help output](docs/screenshots/shell-help.png)
+![Shell showing memory and file commands](docs/screenshots/shell-mem-ls.png)
 
 > **Status:** early development. The kernel boots, handles interrupts,
-> reads the keyboard, counts timer ticks, and runs a working shell.
-> Memory management, files, and the graphical desktop are planned and not yet built.
+> reads the keyboard, counts timer ticks, manages physical memory, serves a
+> built-in read-only file archive, and runs a working shell.
+> Paging, the heap, and the graphical desktop are planned and not yet built.
 > See [Status](#status) for the full list.
+
+> **For classmates:** start with [to-test.txt](to-test.txt). It lists what to
+> test first and includes debug challenges with known problems.
 
 ---
 
@@ -72,12 +76,12 @@ features. Every feature is either working and tested, or labelled
 | Devices | 8259 PIC remap, only IRQ0 and IRQ1 unmasked | Done |
 | Devices | PIT timer at 100 Hz | Done |
 | Input | PS/2 keyboard via IRQ1, Shift, Backspace | Done |
-| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime` | Done |
-| Shell | `mem` | Not built (needs physical memory allocator) |
-| Shell | `ls`, `cat` | Not built (needs RAM filesystem) |
-| Memory | Physical frame allocator | Planned (Week 2) |
-| Memory | Paging, heap | Planned, conditional (Week 2) |
-| Files | RAM filesystem with built-in read-only files | Planned (Week 4) |
+| Output | Dark cyber-gothic text palette (DESIGN.md 3.1) | Done |
+| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat` | Done |
+| Memory | Physical frame allocator (bitmap, 4 KiB frames, from the Multiboot map) | Done, self-tested at boot |
+| Memory | Paging, heap | Planned, conditional |
+| Files | RAM filesystem with three built-in read-only files | Done |
+| Input | Backspace across a wrapped line | **Known bug**, left for classmates to debug (to-test.txt D2) |
 | Graphics | Framebuffer and drawing primitives | Planned (Week 3) |
 | Desktop | Testarossa desktop, About, System Monitor | Planned (Week 3-4) |
 | Input | Mouse, draggable windows | Stretch |
@@ -141,6 +145,8 @@ GDT loaded
 IDT loaded
 PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked
 PIT programmed to 100 Hz
+PMM: memory map read, 129856 KiB free
+PMM self-test: PASS (256 frames allocated, unique, above the kernel, freed, double free ignored)
 Shell ready. Type help.
 testarossa>
 ```
@@ -163,22 +169,40 @@ The keyboard layout is **US**.
 | `clear` | Clear the screen. |
 | `echo <text>` | Print the text after `echo`. |
 | `uptime` | Seconds since boot and the tick count, e.g. `up 13 s (1302 ticks at 100 Hz)`. |
-| `mem`, `ls`, `cat` | Print "not implemented yet". They need memory management and a filesystem. |
+| `mem` | Usable, free, and in-use memory in KiB, from the frame allocator. |
+| `ls` | List the built-in archive files. |
+| `cat <path>` | Print one archive file, e.g. `cat /readme.txt`. |
 
 Anything else prints `unknown command: <word>  (type help)`.
 
+Colours: the prompt word is cyan, errors are magenta, body text is grey.
+
+### Built-in archive
+
+| Path | Contents |
+|---|---|
+| `/readme.txt` | How the archive works and what to try. |
+| `/archive/entry01.txt` | A short, original journal entry. |
+| `/system/about.txt` | Name, version, and what the file is. |
+
+The archive lives in memory and resets on every boot. Nothing is written to disk.
+
 ### Screenshots
 
-| Help and about | Mixed commands | After `clear` |
+| Memory and listing | Reading files | Errors and help |
 |---|---|---|
-| ![help](docs/screenshots/shell-help.png) | ![mixed](docs/screenshots/shell-mixed.png) | ![clear](docs/screenshots/shell-clear.png) |
+| ![mem and ls](docs/screenshots/shell-mem-ls.png) | ![cat](docs/screenshots/shell-cat.png) | ![errors](docs/screenshots/shell-errors-help.png) |
+
+Known bug, shown on purpose (see to-test.txt, challenge D2):
+
+![backspace bug](docs/screenshots/bug-backspace-wrap.png)
 
 ---
 
 ## Testing
 
 - **Classmates**: follow [to-test.txt](to-test.txt). It has 17 numbered tests
-  with exact expected output, and a short template for reporting results.
+  with exact expected output, six debug challenges, and a template for reporting results.
 - **Maintainers**: [VERIFY.md](VERIFY.md) records every milestone, the commands
   used, and what happened. New entries go at the bottom of the log.
 
@@ -186,7 +210,7 @@ Anything else prints `unknown command: <word>  (type help)`.
 
 ```sh
 make clean && make          # clean build must succeed
-make run                    # boot must print the six startup lines
+make run                    # boot must print the startup lines, and the PMM self-test must say PASS
 make clean && make fault-test && make run   # must print "!! EXCEPTION divide error"
 make clean && make          # restore the normal kernel afterwards
 ```
@@ -218,6 +242,8 @@ GRUB or QEMU -kernel
        idt_init      -> install 48 gates, load IDT
        pic_init      -> remap IRQs to 32-47, unmask IRQ0 and IRQ1
        timer_init    -> PIT at 100 Hz
+       pmm_init      -> read the Multiboot memory map, reserve used ranges
+       pmm_selftest  -> allocate, check, and free 256 frames
        sti
        shell_run     -> loop forever
 ```
@@ -261,13 +287,30 @@ buffer with interrupts off, then runs `sti; hlt` if empty. The `sti` takes
 effect after the next instruction, so a key pressed between the check and the
 halt wakes the CPU instead of being lost.
 
-### Memory management (planned)
+### Physical memory (built)
 
-Memory management is part of the exam scope and is not built yet. The plan
-is a physical frame allocator (bitmap of 4 KiB frames) first, then paging
-with identity mapping, then a small heap. Paging is only enabled after a
-page-fault handler is working. See [docs/FUNCTIONS.md](docs/FUNCTIONS.md) for
-the function list.
+The bootloader gives a memory map: a list of regions, each marked usable or
+reserved. `pmm_init` walks that list and sets one bit per 4 KiB frame in a
+bitmap. Usable frames start as free. Then it reserves:
+
+- low memory below 1 MiB (BIOS, VGA, legacy areas),
+- the kernel image, from 1 MiB up to `_kernel_end` (set by `linker.ld`),
+- the boot info and the map buffer itself.
+
+`pmm_alloc_frame` finds a free bit, sets it, and returns the frame address.
+`pmm_free_frame` clears the bit again. Freeing a frame that is already free,
+or one in low memory, does nothing.
+
+The boot-time self-test checks the rules: 256 frames come back aligned, unique,
+and above the kernel; freeing them restores the count; a double free changes nothing.
+
+Paging and a heap come later. Paging is only enabled after a page-fault handler
+works. See [docs/FUNCTIONS.md](docs/FUNCTIONS.md) for the function list.
+
+### Built-in archive
+
+`ramfs` is a table of three files compiled into the kernel. `ls` walks the
+table and `cat` looks up a path with an exact string match. No disk is used.
 
 ---
 
@@ -288,7 +331,7 @@ kernel/
   kernel.c           kernel_main: init order, then shell
   version.h          name and version strings (single source)
   io.h               outb, inb, io_wait
-  vga.c/.h           VGA text output, scroll, hardware cursor
+  vga.c/.h           VGA text output, colours, scroll, hardware cursor
   serial.c/.h        COM1 serial output
   log.c/.h           print to both VGA and serial (log_putc, log_puts, log_dec, log_hex)
   cpu.asm            lgdt/lidt loaders and the GDT segment reload
@@ -298,6 +341,8 @@ kernel/
   pic.c/.h           8259 PIC remap, mask, EOI
   timer.c/.h         PIT at 100 Hz and tick counter
   keyboard.c/.h      IRQ1 handler, scancode table, key queue
+  pmm.c/.h           physical frame allocator and its boot-time self-test
+  ramfs.c/.h         built-in read-only archive (three files)
   shell.c/.h         line editor and commands
 
 docs/
@@ -383,11 +428,16 @@ changed and how you tested it.
   handled. Only tested through the QEMU monitor, not on real hardware.
 - **Shell**: no history, no cursor movement with arrow keys, no tab completion.
   Input is capped at 127 characters.
+- **Known bug**: Backspace at the start of a wrapped row does not move back to
+  the previous row, so the screen and the input line can disagree. Reproduced
+  and documented in VERIFY.md (Entry 10). Left for classmates to find and fix.
 - **Timer**: 100 Hz. The 32-bit tick counter wraps after about 497 days.
 - **Exceptions**: only the divide-by-zero path has been tested. Other
   exceptions use the same handler, but they are not yet verified.
-- **Memory**: no memory management yet. `mem` is not available.
-- **Files**: no filesystem yet. `ls` and `cat` are not available.
+- **Memory**: frames only. No paging and no heap, so there is no `malloc`-style
+  allocation yet. The allocator has not been tested on a machine without a
+  memory map.
+- **Files**: read-only and built in. No disk, no writing, no directories you can create.
 - **Graphics**: VGA text mode only. No framebuffer, no desktop.
 - **Protection**: everything runs in ring 0. No user mode, no process isolation.
 - **Linker**: the single load segment is RWX, which the linker warns about.
@@ -400,9 +450,9 @@ changed and how you tested it.
 | Week | Focus | Status |
 |---|---|---|
 | 1 | Boot, output, keyboard | Done |
-| 2 | Timer, memory (frame allocator, paging, heap) | Timer done. Memory planned. |
+| 2 | Timer, frame allocator, paging, heap | Timer and frame allocator done. Paging and heap planned. |
 | 3 | Shell and framebuffer foundation | Shell done. Framebuffer and drawing planned. |
-| 4 | Desktop panels, RAM filesystem, stability, docs | Planned. |
+| 4 | Desktop panels, RAM filesystem, stability, docs | RAM filesystem done. Desktop planned. |
 
 The full plan, including the design bible and the exam demo, is in
 [Testarossa_OS_Master_Plan_for_Claude.txt](Testarossa_OS_Master_Plan_for_Claude.txt).

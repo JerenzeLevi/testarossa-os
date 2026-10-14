@@ -53,12 +53,14 @@ Contrast rule: body text on Midnight must be at least **4.5 : 1**
 (WCAG AA). Pale lavender on Midnight is about 15 : 1, which passes.
 Electric cyan on Midnight is about 11 : 1.
 
-### 3.1 Text-mode (VGA 80x25) mapping - proposal, pending approval
+### 3.1 Text-mode (VGA 80x25) mapping - APPLIED in v1.1
 
 The VGA text screen has only 16 colours. Until the framebuffer exists,
-the text screen uses this mapping. The current build still uses the old
-bubblegum colour (light magenta on black). Changing it is a design decision,
-so it is listed here for approval and is **not yet applied in code**.
+the text screen uses this mapping. It replaces the earlier bubblegum look
+(light magenta on black, "xoxo" banner), which leaned toward the cute,
+sparkly style of Lily's World XD. That style was dropped on purpose: the
+master plan asks for an original cyber-gothic look and no copied mood.
+Constants are in `kernel/vga.h`.
 
 | Use                    | VGA index | Name           | Closest to                |
 |------------------------|-----------|----------------|---------------------------|

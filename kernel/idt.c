@@ -5,6 +5,7 @@
 #include "pic.h"
 #include "keyboard.h"
 #include "timer.h"
+#include "vga.h"
 
 struct idt_entry {
     uint16_t offset_low;
@@ -62,6 +63,7 @@ void idt_init(void) {
 /* Called from isr_common with interrupts disabled. Keep IRQ work short. */
 void isr_dispatch(regs_t *r) {
     if (r->int_no < 32) {
+        vga_set_color(VGA_COLOR_ACCENT);
         log_puts("\n!! EXCEPTION ");
         log_puts(exception_names[r->int_no]);
         log_puts(" vector=");

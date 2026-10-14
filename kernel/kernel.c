@@ -6,6 +6,7 @@
 #include "idt.h"
 #include "pic.h"
 #include "timer.h"
+#include "pmm.h"
 #include "shell.h"
 #include "version.h"
 
@@ -20,12 +21,14 @@ static void trigger_divide_error(void) {
 #endif
 
 void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
-    (void)mb_info;
-
     vga_init();
     serial_init();
 
-    vga_puts("  ~*~ " TESTAROSSA_NAME " ~*~  v" TESTAROSSA_VERSION "\n\n");
+    vga_set_color(VGA_COLOR_ACCENT);
+    vga_puts("  ~*~ " TESTAROSSA_NAME " ~*~  ");
+    vga_set_color(VGA_COLOR_DIM);
+    vga_puts("v" TESTAROSSA_VERSION "\n\n");
+    vga_set_color(VGA_COLOR_BODY);
     serial_puts(TESTAROSSA_NAME " v" TESTAROSSA_VERSION " booting...\n");
 
     if (mb_magic != 0x2BADB002) {
@@ -44,6 +47,15 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
 
     timer_init();
     serial_puts("PIT programmed to 100 Hz\n");
+
+    if (pmm_init(mb_info) == 0) {
+        log_puts("PMM: memory map read, ");
+        log_dec(pmm_free_frames() * 4);
+        log_puts(" KiB free\n");
+    } else {
+        log_puts("PMM: no memory map from bootloader; allocator disabled\n");
+    }
+    pmm_selftest();
 
 #ifdef TESTAROSSA_FAULT_TEST
     __asm__ volatile("sti");

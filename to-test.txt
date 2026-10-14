@@ -1,232 +1,288 @@
-TESTAROSSA OS - TEST GUIDE FOR CLASSMATES
-==========================================
+TESTAROSSA OS - TEST AND DEBUG GUIDE FOR CLASSMATES
+====================================================
 
-You do not need to know the code to do this. Follow the steps in order.
+The features are already built. Your job is to check them, break them, and
+find what is wrong. You do not need to read the code to do most of this.
+
+Work in this order:
+
+  PART A  Must do first (about 30 min)   Tests 1-4
+  PART B  Feature checks (about 40 min)  Tests 5-16
+  PART C  Debug challenges (rest of time) Challenges D1-D6
+  PART D  Exception path (about 5 min)   Test 17
+
 Each test has an EXPECTED result. If what you see differs, write it down
-(see "How to report" at the bottom).
-
-Time needed: about 20-30 minutes.
+(see HOW TO REPORT at the bottom). A difference is a bug, even a small one.
 
 
 0. WHAT YOU NEED
 ----------------
 - Windows 10 or 11 with WSL2 and Ubuntu installed.
-  (Open PowerShell and run:  wsl --install -d Ubuntu  if you do not have it.)
-- A copy of the project (git clone or the folder you were given).
+  (If you do not have it, open PowerShell as administrator and run:
+   wsl --install -d Ubuntu  then restart the computer.)
+- The project folder (git clone, or the folder you were given).
 
-
-1. ONE-TIME SETUP (inside Ubuntu / WSL)
----------------------------------------
-Open the "Ubuntu" app, go to the project folder, and install the tools:
+Setup, once, inside the Ubuntu app:
 
     sudo apt update
     sudo apt install -y nasm qemu-system-x86 make gcc
 
-Go to the project. Windows drives appear under /mnt, for example:
+Go to the project. Windows drives appear under /mnt:
 
     cd /mnt/c/path/to/Operating_System
 
-Check the tools exist (each should print a path):
+Check the tools (each should print a path):
 
     which nasm qemu-system-i386 make gcc
 
 
-2. TEST 1 - BUILD FROM CLEAN
-----------------------------
+=====================================================================
+PART A - MUST DO FIRST
+=====================================================================
+
+TEST 1 - CLEAN BUILD
+--------------------
     make clean
     make
 
-EXPECTED:
-  - Lines like "nasm -f elf32 ..." and "gcc -m32 ..." appear.
-  - A line "ld -m elf_i386 ..." appears.
-  - The command ends with no "error:" lines.
-  - The file build/testarossa.elf exists:  ls -l build/testarossa.elf
-
-(A warning about "RWX permissions" from ld is known and OK.)
+EXPECTED: no line that starts with "error". The file build/testarossa.elf exists.
+A warning "LOAD segment with RWX permissions" is known and OK.
 
 
-3. TEST 2 - BOOT AND SERIAL LOG
--------------------------------
+TEST 2 - BOOT LOG
+-----------------
     make run
 
-A QEMU window opens. The terminal should also print these lines, in order:
+A QEMU window opens. The terminal should print these lines, in this order:
 
     Testarossa OS v0.1.0 booting...
     GDT loaded
     IDT loaded
     PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked
     PIT programmed to 100 Hz
+    PMM: memory map read, NNNNNN KiB free
+    PMM self-test: PASS (256 frames allocated, unique, above the kernel, freed, double free ignored)
     Shell ready. Type help.
     testarossa>
 
-EXPECTED: all six lines appear, and the prompt "testarossa> " is at the end.
+EXPECTED: all lines appear. NNNNNN is a number, usually around 129000 with the
+default QEMU memory. The self-test line says PASS. If it says FAIL, that is
+the most important bug to report.
 
-Close the QEMU window when you are done. The terminal returns to the prompt.
-
-
-4. TEST 3 - VGA SCREEN
-----------------------
-Run  make run  again. Look at the QEMU window.
-
-EXPECTED:
-  - Pink/magenta text on a black background.
-  - The top line shows "~*~ Testarossa OS ~*~  v0.1.0".
-  - The prompt "testarossa> " is visible with a blinking cursor after it.
-    (The cursor must be at the end of the prompt, not somewhere else on
-    the screen.)
+Close the QEMU window when done.
 
 
-5. TEST 4 - TYPING
-------------------
-Click the QEMU window so it has keyboard focus. Type:
+TEST 3 - SCREEN COLOURS
+-----------------------
+Run  make run  and look at the QEMU window.
 
-    hi
-
-EXPECTED: "hi" appears after the prompt, one letter at a time.
-Then press Enter. The shell prints a new prompt on the next line.
-
-
-6. TEST 5 - SHIFT KEY
----------------------
-Type (holding Shift for the capital letters):
-
-    Hello World 123 !?
-
-EXPECTED: the line appears exactly as typed:
-
-    testarossa> Hello World 123 !?
-
-H and W are capitals. The "!" is Shift+1 and the "?" is Shift+/.
-
-Note: this shell is US keyboard layout only.
+EXPECTED (dark cyber-gothic palette, black background):
+  - The top banner "~*~ Testarossa OS ~*~" is pink-magenta.
+    The version "v0.1.0" next to it is dark grey.
+  - The prompt word "testarossa>" is cyan. The space after it and everything you
+    type is light grey.
+  - No bubblegum pink body text. No "xoxo" text.
 
 
-7. TEST 6 - BACKSPACE
----------------------
-Type  abc  then press Backspace once.
-EXPECTED: the "c" disappears and the cursor moves back one place.
-Press Backspace several more times past the prompt.
-EXPECTED: it stops at the prompt. It does not erase "testarossa> ".
+TEST 4 - TYPING, SHIFT, BACKSPACE
+---------------------------------
+Click the QEMU window so it has keyboard focus.
+
+a) Type  hi  and press Enter.       EXPECTED: "hi" appears, then a new prompt.
+b) Type  Hello World 123 !?  and press Enter.
+   EXPECTED: the line appears exactly as typed, with capitals and symbols.
+c) Type  abc  then Backspace once.  EXPECTED: "c" disappears.
+d) Press Backspace many times.      EXPECTED: it stops at the prompt and never
+                                    erases "testarossa>".
+
+Note: US keyboard layout only.
 
 
-8. TEST 7 - HELP
-----------------
+=====================================================================
+PART B - FEATURE CHECKS
+=====================================================================
+
+TEST 5 - HELP
+-------------
 Type  help  and press Enter.
-
-EXPECTED: a list that begins "Commands:" and includes:
-  help, about, version, clear, echo
-and a line "Not built yet: mem, ls, cat".
+EXPECTED: a list starting with "Commands:". It includes help, about, version,
+clear, echo, uptime, mem, ls, and cat. Nothing says "not implemented".
 
 
-9. TEST 8 - ABOUT AND VERSION
------------------------------
+TEST 6 - ABOUT AND VERSION
+--------------------------
 Type  about  and press Enter.
-EXPECTED: "Testarossa OS 0.1.0" and five lines describing the system
-(32-bit protected mode, VGA text, serial COM1, PS/2 keyboard).
+EXPECTED: "Testarossa OS 0.1.0", then 7 indented lines (CPU mode, kernel, output,
+input, memory, files).
 
 Type  version  and press Enter.
 EXPECTED: exactly  Testarossa OS 0.1.0
 
 
-10. TEST 9 - ECHO
------------------
-Type  echo hello there  and press Enter.
-EXPECTED: the line  hello there  is printed under the command.
-
-Type  echo  (with nothing after it) and press Enter.
-EXPECTED: an empty line is printed. No error.
+TEST 7 - ECHO
+-------------
+Type  echo hello there  and press Enter.   EXPECTED: "hello there".
+Type  echo               and press Enter.   EXPECTED: an empty line, no error.
 
 
-11. TEST 10 - UPTIME (TIMER)
-----------------------------
-Type  uptime  and press Enter. Write down the number after "up".
-Wait about 10 seconds. Type  uptime  again.
-
-EXPECTED: the first number is small, for example 3. The second number is
-about 10 bigger. The ticks value is about 100 times the seconds value.
+TEST 8 - UPTIME
+---------------
+Type  uptime  and write down the first number after "up".
+Wait 10 seconds (count slowly). Type  uptime  again.
+EXPECTED: the second number is about 10 bigger than the first.
+The ticks number is about 100 times the seconds number.
 Example:  up 13 s (1302 ticks at 100 Hz)
 
 
-12. TEST 11 - NOT-YET COMMANDS
-------------------------------
-Type each of these, pressing Enter after each:
-
-    mem
-    ls
-    cat
-
-EXPECTED: each prints  "<name>: not implemented yet (needs ...)".
-The system must NOT crash, and must NOT pretend to show data.
+TEST 9 - MEM
+------------
+Type  mem  and press Enter.
+EXPECTED: three lines, "usable", "free", "in use", all in KiB.
+  - free is less than or equal to usable.
+  - in use = usable - free (within 4 KiB).
+  - "free" is close to the PMM line shown at boot.
+Run  mem  again. EXPECTED: the numbers are the same, or nearly the same.
 
 
-13. TEST 12 - UNKNOWN COMMAND
------------------------------
-Type  bogus  and press Enter.
-EXPECTED: "unknown command: bogus  (type help)" and a new prompt.
+TEST 10 - LS
+------------
+Type  ls  and press Enter.
+EXPECTED: three paths: /readme.txt, /archive/entry01.txt, /system/about.txt,
+then "3 files".
 
 
-14. TEST 13 - CLEAR
--------------------
-Type  clear  and press Enter.
-EXPECTED: the screen empties. The prompt "testarossa> " appears at the top.
-Old text is gone.
+TEST 11 - CAT
+-------------
+Type  cat /readme.txt  and press Enter.
+EXPECTED: four lines of text starting "Testarossa OS keeps a small archive".
+
+Type  cat /archive/entry01.txt  and press Enter.
+EXPECTED: "ENTRY 01" then three lines of text.
+
+Type  cat /system/about.txt  and press Enter.
+EXPECTED: "TESTAROSSA OS 0.1.0" then two lines of text.
 
 
-15. TEST 14 - LONG INPUT
-------------------------
-Hold down the letter  x  until about 150 characters are typed on one line,
-then press Enter.
-
-EXPECTED: no crash, no freeze. The line is cut at about 127 characters.
-The shell still answers the next command (type  version  and Enter).
-
-
-16. TEST 15 - STRESS
+TEST 12 - CAT ERRORS
 --------------------
-Type quickly for 20 seconds: a mix of letters, Enter and Backspace.
-EXPECTED: the screen keeps updating and the keyboard keeps responding.
-The system must not freeze.
+Type  cat /nope.txt  and press Enter.
+EXPECTED: a magenta line "cat: no such file: /nope.txt".
+
+Type  cat  and press Enter.
+EXPECTED: a magenta line "cat: usage: cat <path>".
+
+Type  cat /readme.txt   (with extra spaces after it) and press Enter.
+EXPECTED: the file still prints. Trailing spaces are ignored.
 
 
-17. TEST 16 - REPEATED BOOT
----------------------------
+TEST 13 - UNKNOWN COMMAND
+-------------------------
+Type  bogus  and press Enter.
+EXPECTED: a magenta line "unknown command: bogus  (type help)", then a new prompt.
+
+
+TEST 14 - CLEAR
+---------------
+Type  clear  and press Enter.
+EXPECTED: the screen empties. The prompt is at the top. Old text is gone.
+
+
+TEST 15 - LONG INPUT
+--------------------
+Hold the letter  x  until about 150 characters are on one line, then Enter.
+EXPECTED: no crash, no freeze. The line is cut at about 127 characters.
+Type  version  and Enter afterwards. EXPECTED: it still works.
+
+
+TEST 16 - REPEATED BOOT
+-----------------------
 Close QEMU. Run  make run  three times in a row.
-EXPECTED: each boot prints the same six startup lines. Nothing changes
-between runs.
+EXPECTED: each boot prints the same startup lines. The PMM self-test says PASS
+every time. The numbers are the same each time.
 
 
-18. TEST 17 - EXCEPTION PATH (THE KERNEL CATCHES A CRASH)
----------------------------------------------------------
+=====================================================================
+PART C - DEBUG CHALLENGES
+=====================================================================
+
+These are things we already suspect or have not checked. For each one, say
+what you did, what happened, and whether it is a bug. Do not fix the code
+for these. Report what you find.
+
+D1 - SCROLLING
+    Type  echo line N  (N = 1 to 40) and Enter, 40 times.
+    Check: the screen scrolls, the prompt is always at the bottom, and the
+    last line is correct. Look for lines that are lost or doubled.
+
+D2 - BACKSPACE ACROSS A WRAP  (suspected bug)
+    Type 100 letters in one line (80 characters wrap onto a second screen row).
+    Then press Backspace 30 times.
+    EXPECTED: the letters disappear one by one, including across the wrap.
+    SUSPECTED: when the cursor is at the start of the second row, Backspace
+    does nothing, and the screen and the line length stop matching.
+    Note exactly where it goes wrong.
+
+D3 - LONG ECHO WRAP
+    Type  echo  followed by 120 letters, then Enter.
+    Check: the text wraps at column 80 and nothing is overwritten.
+
+D4 - PATH MATCHING
+    Try these. Each should say "no such file":
+        cat /read
+        cat /readme.txt/
+        cat readme.txt
+        cat /Readme.txt
+    Then try a path that exists with different capitals or spacing.
+
+D5 - CAPS LOCK
+    Press Caps Lock, then type  abc  and Enter.
+    Expected for now: lowercase letters still appear (Caps Lock is a known
+    limitation). Write down what you see.
+
+D6 - LONG RUN
+    Leave QEMU running for 10 minutes, typing  uptime  every few minutes.
+    Check: the number keeps going up, the keyboard still answers, and nothing
+    freezes. Write down the uptime at the start and the end.
+
+
+=====================================================================
+PART D - EXCEPTION PATH
+=====================================================================
+
+TEST 17 - THE KERNEL CATCHES A CRASH
+------------------------------------
 This builds a special copy of the kernel that divides by zero on purpose.
 
     make clean
     make fault-test
     make run
 
-EXPECTED: after the usual startup lines, you see a line like
+EXPECTED: after the startup lines, a red-pink line like:
 
     !! EXCEPTION divide error vector=0x00000000 err=0x00000000 eip=0x...
     system halted
 
-The machine stops there. This is correct.
+The machine stops there. That is correct.
 
 Then go back to the normal kernel:
 
     make clean
     make
 
-Run  make run  once more to check that the normal shell works again.
+Run  make run  once more to check the normal shell works again.
 
 
+=====================================================================
 HOW TO REPORT
--------------
-For each test, write one line:
+=====================================================================
 
-    Test N: PASS  or  FAIL
-    If FAIL: what you typed, what you expected, what you saw.
-    If possible: the last 10 lines of terminal output (copy and paste).
+For each test or challenge, write one line:
 
-Send the list to the project owner, or add it as a GitHub issue with the
-label  testing  (and  needs-test  if a feature is still unverified).
+    Test N: PASS  or  FAIL        (or  D1: found / not found)
+    If FAIL or found: what you typed, what you expected, what you saw.
+    If possible: copy the last 10 lines of terminal output.
+
+Send the list to the project owner, or open a GitHub issue with the label
+testing. Use bug for real failures.
 
 Thank you for testing!

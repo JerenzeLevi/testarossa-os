@@ -5,13 +5,20 @@
 /* VGA text mode buffer: 80x25 cells, each cell is (attribute << 8) | char. */
 #define VGA_WIDTH  80
 #define VGA_HEIGHT 25
-/* Cutecore palette: VGA color indices. Bright magenta text on near-black. */
-#define VGA_BG     0x0                /* black */
-#define VGA_FG     0xD                /* light magenta, bubblegum pink */
-#define VGA_COLOR  ((VGA_BG << 4) | VGA_FG)
+#define VGA_BG     0x0                /* black background */
 
 static volatile uint16_t *const vga_buf = (volatile uint16_t *)0xB8000;
 static int row, col;
+static uint8_t fg_color = VGA_COLOR_BODY;
+
+/* One screen cell: character in the low byte, colour attribute in the high byte. */
+static uint16_t make_cell(char c) {
+    return (uint16_t)((unsigned char)c | (((VGA_BG << 4) | fg_color) << 8));
+}
+
+void vga_set_color(uint8_t fg) {
+    fg_color = fg & 0x0F;
+}
 
 /* Move the blinking hardware cursor to the current row and column.
  * Without this the cursor stays where the BIOS left it. */
@@ -25,7 +32,7 @@ static void vga_sync_cursor(void) {
 
 void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
-        vga_buf[i] = (uint16_t)(' ' | (VGA_COLOR << 8));
+        vga_buf[i] = make_cell(' ');
     row = col = 0;
     vga_sync_cursor();
 }
@@ -34,7 +41,7 @@ static void vga_scroll(void) {
     for (int i = 0; i < VGA_WIDTH * (VGA_HEIGHT - 1); i++)
         vga_buf[i] = vga_buf[i + VGA_WIDTH];
     for (int i = VGA_WIDTH * (VGA_HEIGHT - 1); i < VGA_WIDTH * VGA_HEIGHT; i++)
-        vga_buf[i] = (uint16_t)(' ' | (VGA_COLOR << 8));
+        vga_buf[i] = make_cell(' ');
     row = VGA_HEIGHT - 1;
 }
 
@@ -49,10 +56,10 @@ void vga_putc(char c) {
     } else if (c == '\b') {
         if (col > 0) {
             col--;
-            vga_buf[row * VGA_WIDTH + col] = (uint16_t)(' ' | (VGA_COLOR << 8));
+            vga_buf[row * VGA_WIDTH + col] = make_cell(' ');
         }
     } else {
-        vga_buf[row * VGA_WIDTH + col] = (uint16_t)((unsigned char)c | (VGA_COLOR << 8));
+        vga_buf[row * VGA_WIDTH + col] = make_cell(c);
         if (++col == VGA_WIDTH) {
             col = 0;
             row++;

@@ -13,4 +13,6 @@ SECTIONS
         *(COMMON)
         *(.bss*)
     }
+
+    _kernel_end = .;                /* first byte after the kernel; the allocator reserves below it */
 }

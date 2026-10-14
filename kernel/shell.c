@@ -2,6 +2,8 @@
 #include "shell.h"
 #include "keyboard.h"
 #include "log.h"
+#include "pmm.h"
+#include "ramfs.h"
 #include "serial.h"
 #include "timer.h"
 #include "vga.h"
@@ -24,17 +26,32 @@ static int starts_word(const char *s, const char *w) {
 }
 
 static void prompt(void) {
-    log_puts("testarossa> ");
+    vga_set_color(VGA_COLOR_FOCUS);
+    log_puts("testarossa>");
+    vga_set_color(VGA_COLOR_BODY);
+    log_puts(" ");
+}
+
+/* Error lines use the accent colour so they stand out from normal output. */
+static void error_begin(void) {
+    vga_set_color(VGA_COLOR_ACCENT);
+}
+
+static void error_end(void) {
+    vga_set_color(VGA_COLOR_BODY);
 }
 
 static void cmd_help(void) {
     log_puts("Commands:\n");
-    log_puts("  help      list commands\n");
-    log_puts("  about     what Testarossa OS is and how it was built\n");
-    log_puts("  version   print the version\n");
-    log_puts("  clear     clear the screen\n");
-    log_puts("  echo ...  print the text that follows\n");
-    log_puts("Not built yet: mem, ls, cat\n");
+    log_puts("  help        list commands\n");
+    log_puts("  about       what Testarossa OS is and how it was built\n");
+    log_puts("  version     print the version\n");
+    log_puts("  clear       clear the screen\n");
+    log_puts("  echo ...    print the text that follows\n");
+    log_puts("  uptime      time since boot, from the 100 Hz timer\n");
+    log_puts("  mem         physical memory from the frame allocator\n");
+    log_puts("  ls          list the built-in archive files\n");
+    log_puts("  cat <path>  print one archive file, e.g. cat /readme.txt\n");
 }
 
 static void cmd_about(void) {
@@ -44,6 +61,8 @@ static void cmd_about(void) {
     log_puts("  Kernel: monolithic, freestanding C and NASM\n");
     log_puts("  Output: VGA text 80x25 and serial COM1\n");
     log_puts("  Input: PS/2 keyboard via IRQ1\n");
+    log_puts("  Memory: physical frame allocator, 4 KiB frames\n");
+    log_puts("  Files: read-only RAM archive, built in\n");
 }
 
 static void cmd_version(void) {
@@ -61,6 +80,59 @@ static void cmd_uptime(void) {
     log_puts(" Hz)\n");
 }
 
+static void cmd_mem(void) {
+    uint32_t total = pmm_total_frames();
+    if (total == 0) {
+        error_begin();
+        log_puts("mem: the bootloader gave no memory map\n");
+        error_end();
+        return;
+    }
+    uint32_t free_n = pmm_free_frames();
+    uint32_t used = total - free_n;
+
+    log_puts("memory, 4 KiB frames:\n");
+    log_puts("  usable  ");
+    log_dec(total * 4);
+    log_puts(" KiB\n");
+    log_puts("  free    ");
+    log_dec(free_n * 4);
+    log_puts(" KiB\n");
+    log_puts("  in use  ");
+    log_dec(used * 4);
+    log_puts(" KiB (kernel, low memory, boot info, allocations)\n");
+}
+
+static void cmd_ls(void) {
+    int n = ramfs_count();
+    for (int i = 0; i < n; i++) {
+        log_puts("  ");
+        log_puts(ramfs_name(i));
+        log_putc('\n');
+    }
+    log_dec((uint32_t)n);
+    log_puts(" files\n");
+}
+
+static void cmd_cat(const char *arg) {
+    if (*arg == '\0') {
+        error_begin();
+        log_puts("cat: usage: cat <path>\n");
+        error_end();
+        return;
+    }
+    const char *data = ramfs_read(arg);
+    if (!data) {
+        error_begin();
+        log_puts("cat: no such file: ");
+        log_puts(arg);
+        log_putc('\n');
+        error_end();
+        return;
+    }
+    log_puts(data);
+}
+
 static void cmd_clear(void) {
     vga_clear();
     serial_puts("\x1b[2J\x1b[H");   /* ANSI clear + home for a serial terminal */
@@ -71,19 +143,31 @@ static void cmd_echo(const char *arg) {
     log_putc('\n');
 }
 
-static void cmd_not_built(const char *name, const char *needs) {
-    log_puts(name);
-    log_puts(": not implemented yet (needs ");
-    log_puts(needs);
-    log_puts(")\n");
+static void cmd_unknown(const char *cmd) {
+    error_begin();
+    log_puts("unknown command: ");
+    log_puts(cmd);
+    log_puts("  (type help)\n");
+    error_end();
 }
 
-static void execute(const char *cmd) {
-    /* Skip leading spaces. */
-    while (*cmd == ' ')
-        cmd++;
+/* Advance *p past any spaces. */
+static void skip_spaces(char **p) {
+    while (**p == ' ')
+        (*p)++;
+}
+
+static void execute(char *cmd) {
+    skip_spaces(&cmd);
     if (*cmd == '\0')
         return;
+
+    /* Trim trailing spaces so "cat /readme.txt  " still finds the file. */
+    int len = 0;
+    while (cmd[len])
+        len++;
+    while (len > 0 && cmd[len - 1] == ' ')
+        cmd[--len] = '\0';
 
     if (starts_word(cmd, "help")) {
         cmd_help();
@@ -94,22 +178,21 @@ static void execute(const char *cmd) {
     } else if (starts_word(cmd, "clear")) {
         cmd_clear();
     } else if (starts_word(cmd, "echo")) {
-        const char *arg = cmd + 4;
-        while (*arg == ' ')
-            arg++;
+        char *arg = cmd + 4;
+        skip_spaces(&arg);
         cmd_echo(arg);
     } else if (starts_word(cmd, "uptime")) {
         cmd_uptime();
     } else if (starts_word(cmd, "mem")) {
-        cmd_not_built("mem", "the physical memory allocator");
+        cmd_mem();
     } else if (starts_word(cmd, "ls")) {
-        cmd_not_built("ls", "RAMFS");
+        cmd_ls();
     } else if (starts_word(cmd, "cat")) {
-        cmd_not_built("cat", "RAMFS");
+        char *arg = cmd + 3;
+        skip_spaces(&arg);
+        cmd_cat(arg);
     } else {
-        log_puts("unknown command: ");
-        log_puts(cmd);
-        log_puts("  (type help)\n");
+        cmd_unknown(cmd);
     }
 }
 
