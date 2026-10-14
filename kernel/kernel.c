@@ -7,6 +7,8 @@
 #include "pic.h"
 #include "timer.h"
 #include "pmm.h"
+#include "paging.h"
+#include "heap.h"
 #include "shell.h"
 #include "version.h"
 
@@ -56,6 +58,22 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
         log_puts("PMM: no memory map from bootloader; allocator disabled\n");
     }
     pmm_selftest();
+
+    if (paging_init() == 0)
+        log_puts("Paging on: first 1 GiB identity-mapped with 4 MiB pages\n");
+    else
+        log_puts("Paging: could not start, running without it\n");
+    paging_selftest();
+
+#ifdef TESTAROSSA_PAGE_FAULT_TEST
+    /* Build-time check only: `make pf-test`. Reads an unmapped address,
+     * which should print a page fault and halt. */
+    volatile uint32_t *unmapped = (volatile uint32_t *)0x80000000u;
+    (void)*unmapped;
+#endif
+
+    heap_init();
+    heap_selftest();
 
 #ifdef TESTAROSSA_FAULT_TEST
     __asm__ volatile("sti");

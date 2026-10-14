@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "shell.h"
+#include "heap.h"
 #include "keyboard.h"
 #include "log.h"
 #include "pmm.h"
@@ -101,6 +102,11 @@ static void cmd_mem(void) {
     log_puts("  in use  ");
     log_dec(used * 4);
     log_puts(" KiB (kernel, low memory, boot info, allocations)\n");
+    log_puts("  heap    ");
+    log_dec(heap_free_bytes() / 1024);
+    log_puts(" KiB free of ");
+    log_dec(heap_total_bytes() / 1024);
+    log_puts(" KiB\n");
 }
 
 static void cmd_ls(void) {

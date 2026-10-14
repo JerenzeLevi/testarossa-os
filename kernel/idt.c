@@ -72,6 +72,16 @@ void isr_dispatch(regs_t *r) {
         log_hex(r->err_code);
         log_puts(" eip=");
         log_hex(r->eip);
+        if (r->int_no == 14) {
+            /* Page fault: CR2 holds the faulting address. The error code says why. */
+            uint32_t cr2;
+            __asm__ volatile("mov %%cr2, %0" : "=r"(cr2));
+            log_puts("\n   address=");
+            log_hex(cr2);
+            log_puts(r->err_code & 1 ? " protection violation" : " page not present");
+            log_puts(r->err_code & 2 ? ", write" : ", read");
+            log_puts(r->err_code & 4 ? ", user mode" : ", kernel mode");
+        }
         log_puts("\nsystem halted\n");
         for (;;)
             __asm__ volatile("cli; hlt");

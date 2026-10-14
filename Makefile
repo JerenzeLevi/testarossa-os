@@ -16,7 +16,7 @@ ASM_SRC := $(wildcard boot/*.asm) $(wildcard kernel/*.asm)
 C_SRC   := $(wildcard kernel/*.c)
 OBJS    := $(addprefix $(BUILD)/,$(notdir $(ASM_SRC:.asm=.o) $(C_SRC:.c=.o)))
 
-.PHONY: all run clean fault-test
+.PHONY: all run clean fault-test pf-test
 
 all: $(KERNEL)
 
@@ -45,3 +45,7 @@ clean:
 # Afterwards run `make clean && make` to get the normal kernel back.
 fault-test: clean
 	$(MAKE) EXTRA_CFLAGS=-DTESTAROSSA_FAULT_TEST $(KERNEL)
+
+# Builds a kernel that reads an unmapped address on purpose, to check the page-fault report.
+pf-test: clean
+	$(MAKE) EXTRA_CFLAGS=-DTESTAROSSA_PAGE_FAULT_TEST $(KERNEL)
