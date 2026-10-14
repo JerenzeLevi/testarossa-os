@@ -36,7 +36,11 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 run: $(KERNEL)
-	$(QEMU) -kernel $(KERNEL) -serial stdio
+	$(QEMU) -kernel $(KERNEL) -serial stdio -vga std -no-reboot
+
+# Text shell only: builds without the graphics path. Run `make clean && make` afterwards.
+run-text: clean
+	$(MAKE) EXTRA_CFLAGS=-DTESTAROSSA_NO_GRAPHICS run
 
 clean:
 	rm -rf $(BUILD)

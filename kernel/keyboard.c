@@ -31,6 +31,13 @@ static volatile char queue[QUEUE_SIZE];
 static volatile unsigned int q_head;   /* next write position */
 static volatile unsigned int q_tail;   /* next read position */
 static int shift_down;
+static int e0_pending;
+
+#define SC_EXTENDED   0xE0
+#define SC_EXT_UP     0x48
+#define SC_EXT_DOWN   0x50
+#define SC_EXT_LEFT   0x4B
+#define SC_EXT_RIGHT  0x4D
 
 static void queue_push(char c) {
     unsigned int next = (q_head + 1) % QUEUE_SIZE;
@@ -42,6 +49,25 @@ static void queue_push(char c) {
 
 void keyboard_irq_handler(void) {
     uint8_t sc = inb(KBD_DATA);
+
+    /* Arrow keys and a few others send 0xE0 first, then the code. */
+    if (sc == SC_EXTENDED) {
+        e0_pending = 1;
+        return;
+    }
+    if (e0_pending) {
+        e0_pending = 0;
+        if (sc & SC_RELEASE)
+            return;
+        switch (sc) {
+        case SC_EXT_UP:    queue_push(KEY_UP);    break;
+        case SC_EXT_DOWN:  queue_push(KEY_DOWN);  break;
+        case SC_EXT_LEFT:  queue_push(KEY_LEFT);  break;
+        case SC_EXT_RIGHT: queue_push(KEY_RIGHT); break;
+        default: break;
+        }
+        return;
+    }
 
     if (sc == SC_LSHIFT || sc == SC_RSHIFT) {
         shift_down = 1;

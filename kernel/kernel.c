@@ -9,6 +9,8 @@
 #include "pmm.h"
 #include "paging.h"
 #include "heap.h"
+#include "framebuffer.h"
+#include "desktop.h"
 #include "shell.h"
 #include "version.h"
 
@@ -50,6 +52,13 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     timer_init();
     serial_puts("PIT programmed to 100 Hz\n");
 
+#ifdef TESTAROSSA_FAULT_TEST
+    /* Build-time check only: `make fault-test`. Divides by zero, which should
+     * print an EXCEPTION line and halt. Runs before anything else starts. */
+    __asm__ volatile("sti");
+    trigger_divide_error();
+#endif
+
     if (pmm_init(mb_info) == 0) {
         log_puts("PMM: memory map read, ");
         log_dec(pmm_free_frames() * 4);
@@ -75,9 +84,12 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     heap_init();
     heap_selftest();
 
-#ifdef TESTAROSSA_FAULT_TEST
-    __asm__ volatile("sti");
-    trigger_divide_error();
+#ifndef TESTAROSSA_NO_GRAPHICS
+    if (fb_init() == 0) {
+        /* Graphics are up: the desktop takes over the screen. Serial keeps the log. */
+        desktop_run();
+    }
+    log_puts("graphics unavailable, starting the text shell\n");
 #endif
 
     __asm__ volatile("sti");
