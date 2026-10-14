@@ -1,16 +1,17 @@
 # Testarossa OS
 
 A from-scratch **32-bit x86 educational operating system** written in
-freestanding C and NASM. It boots in QEMU, prints to the screen and serial
-port, handles interrupts, reads the keyboard, runs a small shell, and will
-grow into a cyber-gothic desktop.
+freestanding C and NASM. It boots in QEMU, handles interrupts, reads the
+keyboard, manages memory with paging and a heap, serves a built-in read-only
+archive, and runs a **cyber-gothic desktop** on an 800x600 framebuffer.
+A text shell is available too.
 
-![Shell showing memory and file commands](docs/screenshots/shell-mem-ls.png)
+![Testarossa desktop](docs/screenshots/desktop-home.png)
 
-> **Status:** early development. The kernel boots, handles interrupts,
-> reads the keyboard, counts timer ticks, manages physical memory, serves a
-> built-in read-only file archive, and runs a working shell.
-> Paging, the heap, and the graphical desktop are planned and not yet built.
+> **Status:** the kernel boots, handles interrupts, reads the keyboard,
+> counts timer ticks, manages physical memory, paging, and a heap, draws a
+> graphical desktop with four panels, and runs a text shell.
+> Mouse support, several panels at once, and a Terminal panel are not built.
 > See [Status](#status) for the full list.
 
 > **For classmates:** start with [to-test.txt](to-test.txt). It lists what to
@@ -23,7 +24,8 @@ grow into a cyber-gothic desktop.
 - [What it is](#what-it-is)
 - [Status](#status)
 - [Quick start](#quick-start)
-- [Using the shell](#using-the-shell)
+- [Using the desktop](#using-the-desktop)
+- [Using the text shell](#using-the-text-shell)
 - [Testing](#testing)
 - [How it works](#how-it-works)
 - [Source layout](#source-layout)
@@ -40,15 +42,20 @@ grow into a cyber-gothic desktop.
 Testarossa OS is a teaching operating system. It is small enough to read in
 an afternoon, and each part does one thing that you can explain:
 
-- **Boot**: GRUB-compatible Multiboot header, an assembly entry point that
-  sets up a stack, then hands off to C.
+- **Boot**: a Multiboot header, an assembly entry point that sets up a stack,
+  then hands off to C.
 - **CPU tables**: a Global Descriptor Table (GDT) and an Interrupt Descriptor
   Table (IDT).
 - **Interrupts**: 32 CPU exception handlers and 16 hardware IRQ handlers.
-  Exceptions print a diagnostic and halt.
-- **Devices**: a legacy 8259 PIC, the 8253/8254 programmable timer, a PS/2
-  keyboard, VGA text output, and serial output on COM1.
-- **Shell**: a line-editing command prompt with a handful of commands.
+  Exceptions print a diagnostic and halt. Page faults also print the faulting address.
+- **Devices**: a legacy 8259 PIC, the 8253/8254 timer, a PS/2 keyboard, VGA
+  text, a Bochs VBE linear framebuffer, and serial output on COM1.
+- **Memory**: a physical frame allocator, paging (a 4 MiB identity map and
+  4 KiB mappings), and a kernel heap.
+- **Graphics**: pixel and rectangle drawing, lines, and an 8x16 font, drawn on
+  a back buffer and copied to the screen in one pass.
+- **Desktop and shell**: a graphical desktop with four panels, and a
+  line-editing text shell.
 
 It runs on **32-bit x86 (i386)** in **protected mode**, inside **QEMU**.
 It does not use libc. It has no dependency on an existing operating system
@@ -68,23 +75,28 @@ features. Every feature is either working and tested, or labelled
 | Area | Feature | Status |
 |---|---|---|
 | Boot | Multiboot entry, stack, handoff to C | Done |
-| Output | VGA text 80x25 with hardware cursor | Done |
+| Output | VGA text 80x25 with hardware cursor and colours | Done |
 | Output | Serial COM1 (38400 8N1) | Done |
 | CPU | GDT with flat kernel code and data | Done |
 | Interrupts | IDT with exception and IRQ stubs | Done |
-| Interrupts | Exception diagnostics (vector, error code, EIP) | Done, tested with a deliberate divide-by-zero |
+| Interrupts | Exception diagnostics (vector, error code, EIP) | Done, tested with a divide-by-zero |
+| Interrupts | Page-fault report (address, present, read/write, mode) | Done, tested |
 | Devices | 8259 PIC remap, only IRQ0 and IRQ1 unmasked | Done |
 | Devices | PIT timer at 100 Hz | Done |
-| Input | PS/2 keyboard via IRQ1, Shift, Backspace | Done |
-| Output | Dark cyber-gothic text palette (DESIGN.md 3.1) | Done |
-| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat` | Done |
-| Memory | Physical frame allocator (bitmap, 4 KiB frames, from the Multiboot map) | Done, self-tested at boot |
-| Memory | Paging, heap | Planned, conditional |
+| Input | PS/2 keyboard via IRQ1: Shift, Backspace, arrow keys | Done |
+| Memory | Physical frame allocator (bitmap, 4 KiB, from the Multiboot map) | Done, self-tested at boot |
+| Memory | Paging: 4 MiB identity map, 4 KiB map and unmap | Done, self-tested at boot |
+| Memory | Kernel heap: first-fit, split and merge, 512 KiB | Done, self-tested at boot |
 | Files | RAM filesystem with three built-in read-only files | Done |
-| Input | Backspace across a wrapped line | **Known bug**, left for classmates to debug (to-test.txt D2) |
-| Graphics | Framebuffer and drawing primitives | Planned (Week 3) |
-| Desktop | Testarossa desktop, About, System Monitor | Planned (Week 3-4) |
-| Input | Mouse, draggable windows | Stretch |
+| Graphics | Framebuffer, 800x600x32, via Bochs VBE on QEMU `-vga std` | Done |
+| Graphics | Drawing: pixels, rectangles, frames, lines, 8x16 text | Done |
+| Desktop | Top bar, rail, hub tiles, status cards, dock | Done |
+| Desktop | Panels: About, System Monitor, Archive (list and file), Journal, Messages (placeholder) | Done |
+| Desktop | Keyboard only: Tab, arrows, Enter, Esc, A | Done |
+| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat` | Done (text mode) |
+| Desktop | Terminal panel that uses the shell | Not built |
+| Desktop | Mouse, dragging, several panels at once | Not built (stretch) |
+| Input | Backspace across a wrapped line | **Known bug**, left for classmates to debug (to-test.txt D1) |
 | Scheduler | Processes, context switch, user mode | Not planned for this exam |
 
 Every "Done" item has a verification record in [VERIFY.md](VERIFY.md).
@@ -131,13 +143,13 @@ make
 
 Output: `build/testarossa.elf`.
 
-### 4. Run
+### 4. Run the desktop
 
 ```sh
 make run
 ```
 
-A QEMU window opens. Serial output appears in your terminal:
+A QEMU window opens with the desktop. Serial output appears in your terminal:
 
 ```
 Testarossa OS v0.1.0 booting...
@@ -145,37 +157,54 @@ GDT loaded
 IDT loaded
 PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked
 PIT programmed to 100 Hz
-PMM: memory map read, 129856 KiB free
+PMM: memory map read, 127448 KiB free
 PMM self-test: PASS (256 frames allocated, unique, above the kernel, freed, double free ignored)
-Shell ready. Type help.
-testarossa>
+Paging on: first 1 GiB identity-mapped with 4 MiB pages
+paging self-test: PASS (identity map on, 4 KiB map, write, unmap)
+heap self-test: PASS (64 blocks, no overlap, holes reused, arena merged back)
+framebuffer: PCI slot 2, memory at 0xFD000000, 800x600x32, pitch 3200
 ```
 
-Click the QEMU window and type. Close the window to stop.
+Click the QEMU window to give it keyboard focus. Close the window to stop.
+
+### 5. Run the text shell instead
+
+```sh
+make clean
+make run-text
+```
+
+This builds without graphics, so the text shell starts. Go back to the desktop
+with `make clean && make`.
 
 ---
 
-## Using the shell
+## Using the desktop
 
-Type a command and press **Enter**. Backspace erases the last character you
-typed (it will not erase the prompt). Lines are limited to **127 characters**.
-The keyboard layout is **US**.
+Click the QEMU window first so it has keyboard focus.
 
-| Command | What it does |
+| Key | What it does |
 |---|---|
-| `help` | List the commands. |
-| `about` | Name, version, and a short description of the system. |
-| `version` | Print `Testarossa OS 0.1.0`. |
-| `clear` | Clear the screen. |
-| `echo <text>` | Print the text after `echo`. |
-| `uptime` | Seconds since boot and the tick count, e.g. `up 13 s (1302 ticks at 100 Hz)`. |
-| `mem` | Usable, free, and in-use memory in KiB, from the frame allocator. |
-| `ls` | List the built-in archive files. |
-| `cat <path>` | Print one archive file, e.g. `cat /readme.txt`. |
+| Tab | Move focus to the next hub tile (Archive, Messages, Journal, System, then Archive again). |
+| Arrow keys | Move focus in the 2x2 hub grid. Stops at the edges. |
+| Enter | Open the focused tile. In the Archive list, opens the selected file. |
+| Up / Down | In the Archive list, choose a file. |
+| Esc | In a file, go back to the list. Otherwise close the panel. |
+| A | Open About (it has no tile). |
 
-Anything else prints `unknown command: <word>  (type help)`.
+The focused tile has a bright cyan outline. The rail square next to it lights too.
 
-Colours: the prompt word is cyan, errors are magenta, body text is grey.
+### The hub
+
+| Tile | Opens | Content |
+|---|---|---|
+| Archive | File list | The three built-in files. Enter opens one. |
+| Messages | Placeholder | "No messages." Messaging is not built, and the panel says so. |
+| Journal | Journal | A built-in demo entry, copied from the archive. |
+| System | System Monitor | Uptime, timer ticks, usable RAM, free frames, heap free and size. Refreshes each second. |
+
+The right side shows three cards, UPTIME, MEMORY, and HEAP. The top bar shows
+live uptime. The dock at the bottom shows the key hints.
 
 ### Built-in archive
 
@@ -187,13 +216,43 @@ Colours: the prompt word is cyan, errors are magenta, body text is grey.
 
 The archive lives in memory and resets on every boot. Nothing is written to disk.
 
-### Screenshots
+### Desktop screenshots
+
+| Home | Archive file | System Monitor | About |
+|---|---|---|---|
+| ![home](docs/screenshots/desktop-home.png) | ![file](docs/screenshots/desktop-archive-file.png) | ![monitor](docs/screenshots/desktop-system-monitor.png) | ![about](docs/screenshots/desktop-about.png) |
+
+---
+
+## Using the text shell
+
+Start it with `make run-text`. Type a command and press **Enter**. Backspace
+erases the last character you typed (it will not erase the prompt). Lines are
+limited to **127 characters**. The keyboard layout is **US**.
+
+| Command | What it does |
+|---|---|
+| `help` | List the commands. |
+| `about` | Name, version, and a short description of the system. |
+| `version` | Print `Testarossa OS 0.1.0`. |
+| `clear` | Clear the screen. |
+| `echo <text>` | Print the text after `echo`. |
+| `uptime` | Seconds since boot and the tick count, e.g. `up 13 s (1302 ticks at 100 Hz)`. |
+| `mem` | Usable, free, and in-use memory in KiB, and the heap free amount. |
+| `ls` | List the built-in archive files. |
+| `cat <path>` | Print one archive file, e.g. `cat /readme.txt`. |
+
+Anything else prints `unknown command: <word>  (type help)`.
+
+Colours: the prompt word is cyan, errors are magenta, body text is grey.
+
+### Text shell screenshots
 
 | Memory and listing | Reading files | Errors and help |
 |---|---|---|
 | ![mem and ls](docs/screenshots/shell-mem-ls.png) | ![cat](docs/screenshots/shell-cat.png) | ![errors](docs/screenshots/shell-errors-help.png) |
 
-Known bug, shown on purpose (see to-test.txt, challenge D2):
+Known bug, shown on purpose (see to-test.txt, challenge D1):
 
 ![backspace bug](docs/screenshots/bug-backspace-wrap.png)
 
@@ -201,29 +260,33 @@ Known bug, shown on purpose (see to-test.txt, challenge D2):
 
 ## Testing
 
-- **Classmates**: follow [to-test.txt](to-test.txt). It has 17 numbered tests
-  with exact expected output, six debug challenges, and a template for reporting results.
+- **Classmates**: follow [to-test.txt](to-test.txt). It has 24 numbered tests
+  with exact expected output, seven debug challenges, and a template for
+  reporting results.
 - **Maintainers**: [VERIFY.md](VERIFY.md) records every milestone, the commands
   used, and what happened. New entries go at the bottom of the log.
 
 ### Quick checks
 
 ```sh
-make clean && make          # clean build must succeed
-make run                    # boot must print the startup lines, and the PMM self-test must say PASS
+make clean && make                          # clean build must succeed
+make run                                    # desktop appears; boot log shows PASS for PMM, paging, heap
 make clean && make fault-test && make run   # must print "!! EXCEPTION divide error"
-make clean && make          # restore the normal kernel afterwards
+make clean && make pf-test && make run      # must print "!! EXCEPTION page fault ... address=0x80000000"
+make clean && make run-text                 # text shell starts
+make clean && make                          # restore the normal kernel afterwards
 ```
 
-`make fault-test` builds a deliberately broken kernel. It is for checking
-the exception path only.
+The two crash builds are for checking the exception paths only.
 
 ### Automated checks for a maintainer
 
-The QEMU monitor can send keys over TCP. This is how the shell was tested
-during development: start QEMU with
+The QEMU monitor can send keys over TCP. This is how the desktop and shell
+were tested during development: start QEMU with `-vga std` and
 `-monitor tcp:127.0.0.1:55444,server,nowait`, then send lines such as
-`sendkey h` and `screendump file.ppm`.
+`sendkey down`, `sendkey ret`, and `screendump file.ppm`. Convert the PPM to
+PNG for viewing. The helper scripts are not in the repository, because they
+are not part of the OS.
 
 ---
 
@@ -238,14 +301,19 @@ GRUB or QEMU -kernel
   -> kernel_main(magic,info) kernel/kernel.c
        vga_init, serial_init
        check magic == 0x2BADB002
-       gdt_init      -> load GDT, reload segment registers
-       idt_init      -> install 48 gates, load IDT
-       pic_init      -> remap IRQs to 32-47, unmask IRQ0 and IRQ1
-       timer_init    -> PIT at 100 Hz
-       pmm_init      -> read the Multiboot memory map, reserve used ranges
-       pmm_selftest  -> allocate, check, and free 256 frames
-       sti
-       shell_run     -> loop forever
+       gdt_init        -> load GDT, reload segment registers
+       idt_init        -> install 48 gates, load IDT
+       pic_init        -> remap IRQs to 32-47, unmask IRQ0 and IRQ1
+       timer_init      -> PIT at 100 Hz
+       pmm_init        -> read the Multiboot memory map, reserve used ranges
+       pmm_selftest    -> allocate, check, and free 256 frames
+       paging_init     -> identity-map 1 GiB with 4 MiB pages, turn on paging
+       paging_selftest -> map, write, unmap one 4 KiB page
+       heap_init       -> one free block over the 512 KiB arena
+       heap_selftest   -> 64 blocks, holes reused, merged back
+       fb_init         -> find the VGA card, set 800x600x32, map the framebuffer
+         ok   -> desktop_run   (never returns)
+         fail -> shell_run     (text shell)
 ```
 
 ### One interrupt path, end to end: a key press
@@ -263,31 +331,27 @@ This is the path that the exam asks students to explain.
    the kernel data segment, and calls `isr_dispatch(regs_t *)` in C.
 6. `isr_dispatch` sees vector 33, so IRQ 1. It calls `keyboard_irq_handler`.
 7. The handler reads **port 0x60** once, which gives the scancode. It turns
-   the scancode into ASCII using a table (with Shift) and pushes the character
-   into a 64-byte ring buffer. It returns.
+   the scancode into a key code (with Shift, and with the `0xE0` prefix for
+   arrows) and pushes it into a 64-byte ring buffer. It returns.
 8. `isr_dispatch` calls `pic_send_eoi(1)`. The PIC can now deliver the next IRQ.
 9. `isr_common` restores the registers and runs `iret`. The CPU restores IF
-   and returns to the shell loop.
-10. The shell loop takes the character from the buffer on its next pass.
+   and returns to the main loop.
+10. The desktop or shell takes the key from the buffer on its next pass.
 
 Design rule: the handler only does the minimum (read, store, acknowledge).
-All printing and command logic run outside the interrupt.
+All drawing and command logic run outside the interrupt.
 
 ### Exceptions
 
 Vectors 0-31 are CPU exceptions. For example, dividing by zero raises
 vector 0 (`#DE`). The handler prints the exception name, the vector, the error
 code (when the CPU pushes one), and the instruction pointer, then halts.
-You can test it with `make fault-test`.
 
-### Shell loop
+Page faults (vector 14) also print CR2, the address that faulted, and the
+error bits: whether the page was present, whether it was a read or write,
+and whether it was user or kernel mode. You can test it with `make pf-test`.
 
-The shell and keyboard handler share the ring buffer. The shell checks the
-buffer with interrupts off, then runs `sti; hlt` if empty. The `sti` takes
-effect after the next instruction, so a key pressed between the check and the
-halt wakes the CPU instead of being lost.
-
-### Physical memory (built)
+### Physical memory
 
 The bootloader gives a memory map: a list of regions, each marked usable or
 reserved. `pmm_init` walks that list and sets one bit per 4 KiB frame in a
@@ -301,11 +365,53 @@ bitmap. Usable frames start as free. Then it reserves:
 `pmm_free_frame` clears the bit again. Freeing a frame that is already free,
 or one in low memory, does nothing.
 
-The boot-time self-test checks the rules: 256 frames come back aligned, unique,
-and above the kernel; freeing them restores the count; a double free changes nothing.
+### Paging
 
-Paging and a heap come later. Paging is only enabled after a page-fault handler
-works. See [docs/FUNCTIONS.md](docs/FUNCTIONS.md) for the function list.
+`paging_init` builds one page directory. The first 1 GiB is identity-mapped
+with 4 MiB pages (the PSE feature), so virtual address equals physical address
+there. The directory and any page tables come from the frame allocator. Paging
+is turned on only after the tables are built.
+
+For addresses outside that range, `paging_map` makes a 4 KiB mapping and
+allocates a page table if needed. The self-test maps `0x80000000`, writes
+through the mapping, checks the physical frame, and unmaps it.
+
+### Kernel heap
+
+The heap is a first-fit allocator over a fixed 512 KiB arena in `.bss`. Each
+block has a 16-byte header with its size, a free flag, and a pointer to the next
+block. `kmalloc` takes the first free block that fits, splits it when the rest
+is large enough, and returns the payload. `kfree` marks a block free and
+merges every run of adjacent free blocks.
+
+Design note: the plan suggested building the heap on separate PMM frames. A
+fixed arena keeps the blocks contiguous and the code short. It is documented
+in [docs/FUNCTIONS.md](docs/FUNCTIONS.md).
+
+### Framebuffer
+
+QEMU's loader does not support the Multiboot video request, so the framebuffer
+is set through the Bochs VBE registers on QEMU's standard VGA card. `fb_init`:
+
+1. finds the card on PCI (vendor `0x1234`, device `0x1111`),
+2. reads its BAR0 for the framebuffer address,
+3. checks the VBE interface answers with a known ID,
+4. sets 800x600x32, and reads back width, height, bits per pixel, and enable,
+5. maps the framebuffer memory into the page tables.
+
+If any step fails, the kernel logs the reason and starts the text shell. No
+address is guessed. Drawing goes to a back buffer, which is copied to the
+screen in one pass, so the screen does not flicker.
+
+### Desktop
+
+`desktop_run` is the main loop. It reads a key when one is waiting. It redraws
+after each key and once per second, so the uptime and the monitor values stay
+current. When nothing has changed it sleeps with `sti; hlt`.
+
+Everything drawn is either a fixed layout, a fixed colour from the design
+document, or a value read from the kernel. The Messages and Journal panels say
+clearly which content is built in.
 
 ### Built-in archive
 
@@ -317,42 +423,49 @@ table and `cat` looks up a path with an exact string match. No disk is used.
 ## Source layout
 
 ```
-Testarossa_OS_Master_Plan_for_Claude.txt   project plan (scope and weeks)
-README.md                                   this file
-to-test.txt                                 test guide for classmates
-VERIFY.md                                   verification log, append only
-Makefile                                    build, run, fault-test, clean
-linker.ld                                   places the kernel at 1 MiB, Multiboot first
+Testarossa_OS_Master_Plan.txt   project plan (scope and weeks)
+README.md                       this file
+to-test.txt                     test guide for classmates
+VERIFY.md                       verification log, append only
+Makefile                        build, run, run-text, fault-test, pf-test, clean
+linker.ld                       places the kernel at 1 MiB, Multiboot first
 
 boot/
   multiboot.asm      Multiboot header, stack, _start, handoff to kernel_main
 
 kernel/
-  kernel.c           kernel_main: init order, then shell
+  kernel.c           kernel_main: init order, then desktop or shell
   version.h          name and version strings (single source)
-  io.h               outb, inb, io_wait
+  io.h               port I/O: outb/inb, outw/inw, outl/inl, io_wait
   vga.c/.h           VGA text output, colours, scroll, hardware cursor
   serial.c/.h        COM1 serial output
   log.c/.h           print to both VGA and serial (log_putc, log_puts, log_dec, log_hex)
   cpu.asm            lgdt/lidt loaders and the GDT segment reload
   gdt.c/.h           flat code and data descriptors
   interrupts.asm     48 interrupt stubs and the common register save/restore
-  idt.c/.h           IDT setup and isr_dispatch (exceptions, IRQ routing)
+  idt.c/.h           IDT setup and isr_dispatch (exceptions, page faults, IRQ routing)
   pic.c/.h           8259 PIC remap, mask, EOI
   timer.c/.h         PIT at 100 Hz and tick counter
-  keyboard.c/.h      IRQ1 handler, scancode table, key queue
+  keyboard.c/.h      IRQ1 handler, scancode table, arrow keys, key queue
   pmm.c/.h           physical frame allocator and its boot-time self-test
+  paging.c/.h        identity map, 4 KiB map/unmap, self-test
+  heap.c/.h          kernel heap (first fit, merge) and its self-test
+  framebuffer.c/.h   PCI probe, Bochs VBE mode set, framebuffer mapping, present
+  draw.c/.h          pixels, rectangles, frames, lines, text on the back buffer
+  font.h             font interface
+  font8x16.c         8x16 font data, generated by tools/make_font.py
+  desktop.c/.h       the desktop: scene, panels, keyboard handling
   ramfs.c/.h         built-in read-only archive (three files)
-  shell.c/.h         line editor and commands
+  shell.c/.h         text shell: line editor and commands
+
+tools/
+  make_font.py       turns a PSF console font into kernel/font8x16.c
 
 docs/
   DESIGN.md          UI, UX, and GUI design (locked, change via issue)
   FUNCTIONS.md       every function: done, planned, and its signature
-  screenshots/       screen captures used in this README
+  screenshots/       screen captures used in this README and VERIFY.md
 ```
-
-Planned folders from the master plan (`kernel/memory/`, `kernel/fs/`,
-`kernel/gui/`, `kernel/apps/`) are added only when their code exists.
 
 ---
 
@@ -366,19 +479,24 @@ Planned folders from the master plan (`kernel/memory/`, `kernel/fs/`,
 | Linker | `ld -m elf_i386 -T linker.ld -nostdlib` |
 | Load address | 1 MiB |
 | Output | `build/testarossa.elf` (Multiboot ELF) |
-| Emulator | `qemu-system-i386 -kernel build/testarossa.elf -serial stdio` |
+| Emulator | `qemu-system-i386 -kernel build/testarossa.elf -serial stdio -vga std` |
 
 Make targets:
 
 | Target | Does |
 |---|---|
 | `make` / `make all` | Build `build/testarossa.elf` |
-| `make run` | Build if needed, then boot in QEMU with serial on the terminal |
-| `make fault-test` | Build the divide-by-zero test kernel. Run `make clean && make` after. |
+| `make run` | Build if needed, then boot the desktop in QEMU with serial on the terminal |
+| `make run-text` | Clean build without graphics, then boot the text shell. Run `make clean && make` afterwards. |
+| `make fault-test` | Build a kernel that divides by zero. Run `make clean && make` after. |
+| `make pf-test` | Build a kernel that reads an unmapped address. Run `make clean && make` after. |
 | `make clean` | Delete `build/` |
 
 Known build output: the linker prints a warning that the single load segment
 is RWX. It is harmless for this exam and is listed under Limitations.
+
+To regenerate the font: `python3 tools/make_font.py <Lat15-VGA16.psf> kernel/font8x16.c`.
+The source font is in the `console-setup-linux` package (`/usr/share/consolefonts/`).
 
 ---
 
@@ -389,8 +507,8 @@ is RWX. It is harmless for this exam and is listed under Limitations.
 | [docs/DESIGN.md](docs/DESIGN.md) | Colours, layouts, keyboard rules, and the design lock. Change it through an issue first. |
 | [docs/FUNCTIONS.md](docs/FUNCTIONS.md) | Each function: purpose, inputs, status. Planned functions included. |
 | [VERIFY.md](VERIFY.md) | What was tested, how, and the result. |
-| [to-test.txt](to-test.txt) | Step-by-step tests for classmates. |
-| [Testarossa_OS_Master_Plan_for_Claude.txt](Testarossa_OS_Master_Plan_for_Claude.txt) | Scope, four-week schedule, and priorities. |
+| [to-test.txt](to-test.txt) | Step-by-step tests and debug challenges for classmates. |
+| [Testarossa_OS_Master_Plan.txt](Testarossa_OS_Master_Plan.txt) | Scope, four-week schedule, and priorities. |
 
 The visual identity is **Testarossa**: midnight navy, violet, electric cyan,
 and hot magenta. It is an original design. It takes its mood from early-2000s
@@ -415,7 +533,7 @@ This is a class project, so the rules are short:
    text) without an approved `ux-design` issue.
 7. **Keep the build warning-free** apart from the known RWX warning.
 
-Branch names: `feature/<short-name>`, for example `feature/timer`.
+Branch names: `feature/<short-name>`, for example `feature/mouse`.
 
 Commit messages: one short summary line, then a short body that says what
 changed and how you tested it.
@@ -426,19 +544,25 @@ changed and how you tested it.
 
 - **Keyboard**: US layout only. Caps Lock and Ctrl/Alt combinations are not
   handled. Only tested through the QEMU monitor, not on real hardware.
-- **Shell**: no history, no cursor movement with arrow keys, no tab completion.
-  Input is capped at 127 characters.
-- **Known bug**: Backspace at the start of a wrapped row does not move back to
-  the previous row, so the screen and the input line can disagree. Reproduced
-  and documented in VERIFY.md (Entry 10). Left for classmates to find and fix.
+- **Known bug**: in the text shell, Backspace at the start of a wrapped row does
+  not move back to the previous row, so the screen and the input line can
+  disagree. Reproduced and documented in VERIFY.md (Entry 10). Left for
+  classmates to find and fix (to-test.txt D1).
+- **Text shell**: no history, no cursor movement with arrow keys, no tab completion.
+  Input is capped at 127 characters. The shell is not shown inside the desktop yet.
+- **Desktop**: no mouse. One panel at a time. Panels do not wrap long lines
+  (to-test.txt D2). Messages is a placeholder. The About panel is reached only with A.
+- **Graphics**: only on QEMU with `-vga std` (Bochs VBE). No support for real
+  graphics hardware. The mode is fixed at 800x600x32.
+- **Memory**: the allocator and paging have been tested in QEMU only. The
+  allocator has not been tested on a machine without a memory map. The heap is
+  a fixed 512 KiB arena, so `kmalloc` returns NULL when it is full, and this
+  case is not tested yet.
+- **Paging**: no page-fault recovery. The handler reports and halts.
 - **Timer**: 100 Hz. The 32-bit tick counter wraps after about 497 days.
-- **Exceptions**: only the divide-by-zero path has been tested. Other
+- **Exceptions**: only divide-by-zero and page fault have been tested. Other
   exceptions use the same handler, but they are not yet verified.
-- **Memory**: frames only. No paging and no heap, so there is no `malloc`-style
-  allocation yet. The allocator has not been tested on a machine without a
-  memory map.
 - **Files**: read-only and built in. No disk, no writing, no directories you can create.
-- **Graphics**: VGA text mode only. No framebuffer, no desktop.
 - **Protection**: everything runs in ring 0. No user mode, no process isolation.
 - **Linker**: the single load segment is RWX, which the linker warns about.
 - **Hardware**: tested only in QEMU, not on physical machines.
@@ -450,9 +574,9 @@ changed and how you tested it.
 | Week | Focus | Status |
 |---|---|---|
 | 1 | Boot, output, keyboard | Done |
-| 2 | Timer, frame allocator, paging, heap | Timer and frame allocator done. Paging and heap planned. |
-| 3 | Shell and framebuffer foundation | Shell done. Framebuffer and drawing planned. |
-| 4 | Desktop panels, RAM filesystem, stability, docs | RAM filesystem done. Desktop planned. |
+| 2 | Timer, frame allocator, paging, heap | Done |
+| 3 | Shell and framebuffer foundation | Done (shell, framebuffer, drawing, font) |
+| 4 | Desktop panels, RAM filesystem, stability, docs | Desktop and filesystem done. Terminal panel, mouse, and stability runs still to do. |
 
 The full plan, including the design bible and the exam demo, is in
-[Testarossa_OS_Master_Plan_for_Claude.txt](Testarossa_OS_Master_Plan_for_Claude.txt).
+[Testarossa_OS_Master_Plan.txt](Testarossa_OS_Master_Plan.txt).

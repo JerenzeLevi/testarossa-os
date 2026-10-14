@@ -22,7 +22,12 @@ README.md (build and run).
 | 7 | Dark cyber-gothic text palette | next commit | pass | pass (screen) | n/a | PASS |
 | 8 | Physical memory allocator, PMM self-test, `mem` | next commit | pass | pass (serial) | pass | PASS |
 | 9 | RAM filesystem, `ls`, `cat` | next commit | pass | pass (serial + screen) | pass | PASS |
-| 10 | Backspace across a wrapped line | next commit | n/a | pass (screen) | **BUG** | KNOWN BUG, left for tester challenge D2 |
+| 10 | Backspace across a wrapped line | next commit | n/a | pass (screen) | **BUG** | KNOWN BUG, left for tester challenge D1 |
+| 11 | Paging, page-fault report, heap | 04d6331 | pass | pass (serial) | n/a | PASS |
+| 12 | Framebuffer (Bochs VBE via PCI), drawing, 8x16 font | 3822299 | pass | pass (serial + screen) | n/a | PASS |
+| 13 | Desktop: hub, cards, panels, arrows, Tab, Enter, Esc | 3822299 | pass | pass (screen, scripted keys) | pass | PASS |
+| 14 | Regression: fault-test did not trigger after desktop was added (fixed) | 3822299 | pass | pass (serial) | n/a | FIXED, see Entry 14 |
+| 15 | About panel (key A), text corrected | next commit | pass | pass (screen) | pass | PASS |
 
 ---
 
@@ -128,6 +133,61 @@ README.md (build and run).
 
 ---
 
+## Entry 11 - Paging, page-fault report, heap (04d6331)
+
+- Paging: 1 GiB identity-mapped with 4 MiB pages (PSE). CR3 and PG set.
+  Boot log: `Paging on: first 1 GiB identity-mapped with 4 MiB pages`.
+- Paging self-test: maps `0x80000000` to a frame, writes `0xC0FFEE42`,
+  checks the physical frame, unmaps, checks it is gone. PASS.
+- Heap self-test: 64 blocks, pattern checks, holes reused, merge back to one
+  block. PASS on every boot.
+- `make pf-test` (reads `0x80000000` with paging on) prints:
+  `!! EXCEPTION page fault ... address=0x80000000 page not present, read, kernel mode`.
+- Note: free memory dropped from 129856 to 129340 KiB because page tables now
+  come from the frame allocator. This is expected.
+
+## Entry 12 - Framebuffer, drawing, font (3822299)
+
+- QEMU's multiboot loader does not support the video request. Its message:
+  `multiboot knows VBE. we don't`. This was tested in a scratch build before the
+  design was chosen. So the framebuffer is set through the Bochs VBE registers.
+- Probe output: `framebuffer: PCI slot 2, memory at 0xFD000000, 800x600x32, pitch 3200`.
+- Every value is read back after it is written: width, height, bpp, enable.
+- Font: Lat15-VGA16.psf from console-setup. Glyph 65 checked as `A`.
+- Drawing checked by the desktop screenshots (text, frames, lines of the icons).
+
+## Entry 13 - Desktop (3822299)
+
+- Scripted run (`scratchpad/drive_desktop.py`): arrows move focus, Enter opens
+  Archive, Down and Enter open a file, Esc steps back, Right/Down/Enter opens
+  System Monitor, Left/Enter opens Journal, Tab and Enter.
+- Screenshots (in `docs/screenshots/`):
+  - `desktop-home.png`: hub, rail, cards, top bar with live uptime, dock.
+  - `desktop-archive-file.png`: file view with the real contents of entry01.
+  - `desktop-system-monitor.png`: values read from the kernel (uptime 10 s,
+    1000 ticks at 100 Hz, heap 511 of 512 KiB).
+- Limits seen: text does not wrap in panels (to-test D2). Only one panel
+  opens at a time.
+
+## Entry 14 - Regression found and fixed (3822299)
+
+- Symptom: `make fault-test` booted normally and never printed the exception.
+- Cause: the divide-by-zero call was placed after `desktop_run()`, which never
+  returns, so the call was never reached. The build was correct; the placement was wrong.
+- Fix: the test runs right after the timer starts, before any other setup.
+- Verified after the fix:
+  - `make fault-test`: `!! EXCEPTION divide error vector=0x00000000 ... system halted`.
+  - `make pf-test`: the page-fault report as in Entry 11.
+  - `make run-text`: text shell still works (help, ls, cat, errors).
+
+## Entry 15 - About panel (next commit)
+
+- Added: key `A` on the desktop opens About. The hub has no About tile, so this
+  is the only way to reach it. The dock hint shows `A about`.
+- Screenshot: `docs/screenshots/desktop-about.png`. Text matches the code.
+
+---
+
 ## Open items (not yet verified)
 
 - Real PS/2 keyboard hardware (only tested through the QEMU monitor).
@@ -135,4 +195,8 @@ README.md (build and run).
 - Long-run stability (hours of uptime). Tick counter wraps after about 497 days.
 - Memory map fallback path (no bootloader map).
 - Backspace across a wrapped line: known bug, see Entry 10.
-- Paging, heap, framebuffer, desktop: not built yet.
+- Desktop: mouse, dragging, several panels at once, and a Terminal panel are not built.
+- Framebuffer: only tested on QEMU `-vga std`. Real hardware is not supported.
+- Paging: only the identity map and 4 KiB map/unmap are tested. No page-fault
+  recovery (the handler reports and halts).
+- Heap: fixed 512 KiB arena. Out-of-memory behaviour (kmalloc returning NULL) is not tested.

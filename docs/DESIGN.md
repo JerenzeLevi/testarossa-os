@@ -104,11 +104,33 @@ Constants are in `kernel/vga.h`.
 - `clear` empties the screen and prints the next prompt at the top.
 
 
-## 5. Desktop design (planned, Week 3-4)
+## 5. Desktop design (built in v1.1, 800x600x32)
 
-Target: a framebuffer mode provided by the boot path. The resolution is taken
-from the boot information. It is **not** hardcoded. The layout below is
-given as proportions so it works at any size of 800x600 or larger.
+Status: built. The mode is 800x600 and it is set through the Bochs VBE
+registers (QEMU `-vga std`), not through the boot header. The layout below
+is the plan. The **as built** notes right after it list the differences.
+Any further change goes through the design process in section 8.
+
+### 5.0 As built (v1.1)
+
+- Top bar, 28 px: name and version on the left, live `up HH:MM:SS` on the right.
+- Navigation rail, 72 px wide: four squares labelled AR, ME, JO, SY. The
+  focused one is lit. The rail is a visual index, not a separate control.
+- Hub: four tiles in a 2x2 grid, 236 x 150 px, 20 px apart. Archive, Messages,
+  Journal, System. Each has a small pixel icon, a violet shadow, and a 3 px cyan
+  outline when focused.
+- Status cards, 180 px wide on the right: UPTIME, MEMORY (free frames), HEAP
+  (free bytes). Real values, redrawn every second.
+- Dock, 36 px at the bottom: key hints.
+- Panels: one at a time. About (key A), System Monitor, Archive (list and
+  file view), Journal, Messages (says it is not built).
+- No mouse. Esc closes a panel. Tab and arrows move focus.
+- The text shell is not shown inside the desktop yet. It runs only without
+  graphics (`make run-text`).
+
+### 5.1 Plan (original, for reference)
+
+The layout below is given as proportions so it works at any size of 800x600 or larger.
 
 ### 5.1 Regions
 

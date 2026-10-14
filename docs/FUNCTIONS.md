@@ -7,14 +7,13 @@ teammates build to the same interface.
 Status key:
 - **DONE** - written and verified in QEMU (see VERIFY.md).
 - **PLANNED** - designed here, not written yet.
-- **STRETCH** - only if earlier work is stable.
+- **TEST ONLY** - compiled only with a special build flag.
 
 Keep this file in sync with the code. When a function changes signature,
 update this file in the same commit.
 
-Source files live flat in `kernel/` for now. The master plan's sub-folders
-(`memory/`, `fs/`, `gui/`, `apps/`) are created only when a planned module
-is written.
+Source files live flat in `kernel/`. The master plan's sub-folders are
+not used, to keep the Makefile simple.
 
 
 ## 1. Boot and CPU setup
@@ -28,7 +27,7 @@ is written.
 ### `linker.ld`
 | Symbol | Status | Purpose |
 |---|---|---|
-| `_kernel_end` | DONE | First byte after `.bss`. The allocator reserves everything below it. |
+| `_kernel_end` | DONE | First byte after `.bss`. The frame allocator reserves everything below it. |
 
 ### `kernel/cpu.asm`
 | Symbol | Status | Purpose |
@@ -49,7 +48,7 @@ Constants: `GDT_KERNEL_CODE = 0x08`, `GDT_KERNEL_DATA = 0x10`.
 |---|---|---|
 | `void idt_init(void)` | DONE | Installs gates for vectors 0-47 from `isr_stub_table` and loads the IDT. |
 | `static void idt_set_gate(uint8_t vector, uint32_t handler)` | DONE | Fills one interrupt gate (ring 0, 32-bit interrupt gate). |
-| `void isr_dispatch(regs_t *r)` | DONE | Common C handler. Exceptions (0-31): print name, vector, error code, EIP in accent colour, then halt. IRQs (32-47): call the device handler, then send EOI. |
+| `void isr_dispatch(regs_t *r)` | DONE | Common C handler. Exceptions (0-31): print name, vector, error code, EIP in accent colour, then halt. Page faults (14) also print CR2 and the error bits. IRQs (32-47): call the device handler, then send EOI. |
 
 `regs_t` (in `idt.h`) is the register frame built by `isr_common`. Field order matches the push order.
 
@@ -76,29 +75,44 @@ Constants: `GDT_KERNEL_CODE = 0x08`, `GDT_KERNEL_DATA = 0x10`.
 
 Constant: `TIMER_HZ = 100`.
 
-### `kernel/keyboard.c` / `kernel/keyboard.h`
+## 2. Memory
+
+### `kernel/pmm.c` / `kernel/pmm.h` (physical frames)
 | Function | Status | Purpose |
 |---|---|---|
-| `void keyboard_irq_handler(void)` | DONE | IRQ1 handler. Reads port `0x60`, tracks Shift, translates scancode set 1 to ASCII, pushes into the queue. Ignores key releases. |
-| `int keyboard_getc(void)` | DONE | Pops one character, or returns `-1` if the queue is empty. |
-| `static void queue_push(char c)` | DONE | Ring buffer write. Drops the key if the queue is full (64 bytes). |
-
-## 2. Memory and built-in files
-
-### `kernel/pmm.c` / `kernel/pmm.h` (physical memory manager)
-| Function | Status | Purpose |
-|---|---|---|
-| `int pmm_init(uint32_t mb_info_addr)` | DONE | Reads the Multiboot memory map (bit 6 of the boot info flags). Marks `type 1` regions free. Reserves: low memory below 1 MiB, the kernel image up to `_kernel_end`, the boot info frame, and the map buffer. Falls back to `mem_upper` if no map. Returns `-1` if neither is present. |
+| `int pmm_init(uint32_t mb_info_addr)` | DONE | Reads the Multiboot memory map (bit 6 of the boot info flags). Marks `type 1` regions free. Reserves low memory below 1 MiB, the kernel image up to `_kernel_end`, the boot info frame, and the map buffer. Falls back to `mem_upper` if no map. Returns `-1` if neither is present. |
 | `uint32_t pmm_alloc_frame(void)` | DONE | Returns one free 4 KiB frame address, or `0` when none is free. Frame 0 is never handed out. |
 | `void pmm_free_frame(uint32_t phys)` | DONE | Frees a frame. Ignores misaligned, out-of-range, low-memory, and already-free addresses. |
 | `uint32_t pmm_total_frames(void)` | DONE | Frames the bootloader reported as usable. `0` means no map. |
 | `uint32_t pmm_free_frames(void)` | DONE | Frames free right now. |
 | `int pmm_selftest(void)` | DONE | Allocates 256 frames, checks each is aligned, above the kernel, and unique. Frees them, checks a double free changes nothing, and checks the count returns to the start. Prints PASS or FAIL. |
-| `static void make_available(uint64_t start, uint64_t end)` | DONE | Clears bits for whole frames inside a region. Counts each frame once. |
-| `static void reserve(uint64_t start, uint64_t end)` | DONE | Sets bits for frames overlapping a region. Only free frames change. |
-| `static uint64_t read_u64(const uint8_t *p)` | DONE | Reads a 64-bit field as two 32-bit reads, since map entries may be unaligned. |
 
 Bitmap: 1 bit per frame, managing up to 1 GiB (32 KiB of `.bss`).
+
+### `kernel/paging.c` / `kernel/paging.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `int paging_init(void)` | DONE | Builds a page directory that identity-maps the first 1 GiB with 4 MiB pages (PSE), loads CR3, sets PG. The directory frame comes from the frame allocator. |
+| `int paging_identity_large(uint32_t phys, uint32_t size)` | DONE | Identity-maps the 4 MiB regions covering a range. Used for the framebuffer, which sits above 1 GiB. |
+| `int paging_map(uint32_t virt, uint32_t phys, uint32_t flags)` | DONE | Maps one 4 KiB page. Allocates a page table from the frame allocator if needed. Refuses addresses inside a 4 MiB identity region. |
+| `void paging_unmap(uint32_t virt)` | DONE | Clears one 4 KiB mapping and flushes the TLB entry. |
+| `int paging_is_mapped(uint32_t virt)` | DONE | Returns 1 if a present mapping exists. |
+| `int paging_selftest(void)` | DONE | Maps a frame at `0x80000000`, writes through it, checks the physical frame, unmaps, checks it is gone. Prints PASS or FAIL. |
+| `static void zero_frame(uint32_t phys)` | DONE | Zeroes one 4 KiB frame. |
+| `static void load_cr3(uint32_t phys)`, `static void invlpg(uint32_t virt)` | DONE | Small CPU helpers. |
+
+### `kernel/heap.c` / `kernel/heap.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `void heap_init(void)` | DONE | Sets up one free block over a 512 KiB arena in `.bss`. |
+| `void *kmalloc(uint32_t n)` | DONE | First-fit allocation. Sizes round up to 16 bytes. Splits a block when the rest is big enough. Returns `NULL` for size 0 or when nothing fits. |
+| `void kfree(void *p)` | DONE | Marks a block free and merges all adjacent free blocks. Ignores `NULL`, pointers outside the arena, and double frees. |
+| `uint32_t heap_free_bytes(void)` | DONE | Payload bytes in free blocks. |
+| `uint32_t heap_total_bytes(void)` | DONE | Arena size, 512 KiB. |
+| `int heap_selftest(void)` | DONE | 64 blocks with patterns, overlap check, free every other block and refill the holes, then check the arena merges back into one block. Prints PASS or FAIL. |
+
+Design choice: the heap uses a fixed arena in `.bss`, not individual PMM
+frames. That keeps blocks contiguous and the code short. Noted in the README.
 
 ### `kernel/ramfs.c` / `kernel/ramfs.h` (built-in read-only archive)
 | Function | Status | Purpose |
@@ -108,16 +122,15 @@ Bitmap: 1 bit per frame, managing up to 1 GiB (32 KiB of `.bss`).
 | `const char *ramfs_read(const char *path)` | DONE | Contents of the file with this exact path, or `NULL`. |
 | `static int streq(const char *a, const char *b)` | DONE | String equality. |
 
-Files: `/readme.txt`, `/archive/entry01.txt`, `/system/about.txt`. Contents
-are original text and are compiled into the kernel. Nothing is written to disk.
+Files: `/readme.txt`, `/archive/entry01.txt`, `/system/about.txt`. Original text,
+compiled into the kernel. Nothing is written to disk.
 
 ## 3. Output
 
 ### `kernel/io.h`
 | Function | Status | Purpose |
 |---|---|---|
-| `outb(uint16_t port, uint8_t val)` | DONE | Port write. |
-| `inb(uint16_t port)` | DONE | Port read. |
+| `outb`, `inb`, `outw`, `inw`, `outl`, `inl` | DONE | Port I/O. |
 | `io_wait(void)` | DONE | Short delay via port `0x80`, for the PIC. |
 
 ### `kernel/vga.c` / `kernel/vga.h`
@@ -129,7 +142,7 @@ Palette (constants in `vga.h`, from DESIGN.md section 3.1): `VGA_COLOR_DIM` (8),
 | `void vga_init(void)` | DONE | Clears the screen. |
 | `void vga_clear(void)` | DONE | Fills the 80x25 buffer with spaces, moves the cursor home. |
 | `void vga_set_color(uint8_t fg)` | DONE | Sets the foreground colour for later characters. Low 4 bits only. |
-| `void vga_putc(char c)` | DONE | One character. Handles `\n`, `\b` (erase previous cell), wrap, and scroll. Updates the hardware cursor. |
+| `void vga_putc(char c)` | DONE | One character. Handles `\n`, `\b` (erase previous cell), wrap, and scroll. Updates the hardware cursor. Known bug: `\b` at column 0 does nothing (to-test D1). |
 | `void vga_puts(const char *s)` | DONE | Writes a string. |
 | `static uint16_t make_cell(char c)` | DONE | Builds a screen cell from a character and the current colour. |
 | `static void vga_scroll(void)` | DONE | Moves rows up by one, clears the last row. |
@@ -150,9 +163,86 @@ Palette (constants in `vga.h`, from DESIGN.md section 3.1): `VGA_COLOR_DIM` (8),
 | `void log_dec(uint32_t v)` | DONE | Prints an unsigned decimal number. |
 | `void log_hex(uint32_t v)` | DONE | Prints `0x` plus 8 hex digits. |
 
-## 4. Shell
+## 4. Graphics
+
+### `kernel/framebuffer.c` / `kernel/framebuffer.h`
+Mode: 800x600, 32 bits per pixel, pixels stored as `0x00RRGGBB`.
+Requires QEMU `-vga std`. The Multiboot video request is not used, because
+QEMU's loader does not support it (its message: "multiboot knows VBE. we don't").
+
+| Function | Status | Purpose |
+|---|---|---|
+| `int fb_init(void)` | DONE | Finds the VGA card on PCI (vendor `0x1234`, device `0x1111`). Reads BAR0 for the framebuffer address. Checks the Bochs VBE ID, sets 800x600x32, reads back width, height, bpp, enable, and virtual width. Maps the framebuffer with `paging_identity_large`. Returns 0 only when every check passes. |
+| `int fb_ready(void)` | DONE | 1 after a successful `fb_init`. |
+| `uint32_t fb_width(void)`, `uint32_t fb_height(void)` | DONE | Mode size, 800 and 600. |
+| `uint32_t *fb_backbuffer(void)` | DONE | The off-screen buffer, 800 x 600 `uint32_t`. Drawing goes here. |
+| `void fb_present(void)` | DONE | Copies the back buffer to the framebuffer, row by row, using the device pitch. |
+| `static uint32_t pci_read32(uint8_t dev, uint8_t off)` | DONE | PCI configuration read, bus 0. |
+| `static void vbe_write(uint16_t index, uint16_t value)`, `vbe_read` | DONE | Bochs VBE index and data ports (`0x1CE`, `0x1CF`). |
+| `static int fail(const char *why)` | DONE | Logs one reason and returns -1. |
+
+Memory: the back buffer is 1.9 MB of `.bss`.
+
+### `kernel/draw.c` / `kernel/draw.h`
+All calls clip to the screen.
+
+| Function | Status | Purpose |
+|---|---|---|
+| `void draw_clear(uint32_t color)` | DONE | Fills the back buffer. |
+| `void draw_pixel(int x, int y, uint32_t color)` | DONE | One pixel. |
+| `void draw_rect(int x, int y, int w, int h, uint32_t color)` | DONE | Filled rectangle. |
+| `void draw_frame(int x, int y, int w, int h, int thickness, uint32_t color)` | DONE | Outline rectangle with a thickness. |
+| `void draw_line(int x0, int y0, int x1, int y1, uint32_t color)` | DONE | Bresenham line, all directions. |
+| `void draw_char(int x, int y, char c, uint32_t color)` | DONE | One 8x16 glyph, transparent background. |
+| `void draw_text(int x, int y, const char *s, uint32_t color)` | DONE | A string on one line. Does not wrap. |
+| `int draw_text_width(const char *s)` | DONE | Width in pixels of a string. |
+
+### `kernel/font.h` / `kernel/font8x16.c`
+| Item | Status | Purpose |
+|---|---|---|
+| `font8x16_data[256 * 16]` | DONE | 8x16 bitmap font, generated by `tools/make_font.py` from Debian's Lat15-VGA16.psf. Glyph index = character code. Glyph 65 is `A` (checked). |
+
+## 5. Input and the desktop
+
+### `kernel/keyboard.c` / `kernel/keyboard.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `void keyboard_irq_handler(void)` | DONE | IRQ1 handler. Reads port `0x60`. Tracks Shift. Handles the `0xE0` prefix for arrow keys. Translates scancode set 1 to ASCII. Pushes into the 64-byte queue. Ignores key releases. |
+| `int keyboard_getc(void)` | DONE | Pops one key, or returns `-1` if the queue is empty. |
+| `static void queue_push(char c)` | DONE | Ring buffer write. Drops the key if full. |
+
+Key codes: ASCII for letters, `\n` Enter, `\t` Tab, `\b` Backspace, `27` Esc.
+Arrows: `KEY_UP` 0x80, `KEY_DOWN` 0x81, `KEY_LEFT` 0x82, `KEY_RIGHT` 0x83.
+
+### `kernel/desktop.c` / `kernel/desktop.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `void desktop_run(void)` | DONE | Main loop, never returns. Reads keys. Redraws on each key and once per second (the uptime changes). Sleeps with `sti; hlt` between frames. |
+| `static void render(void)` | DONE | Draws background, top bar, rail, hub, cards, dock, and the open window, then `fb_present`. |
+| `static void handle_key(int c)` | DONE | Arrows and Tab move focus. Enter opens the focused tile, or a file in the archive list. A opens About. Esc goes back, or closes the panel. |
+| `static void move_focus(int dx, int dy)` | DONE | Moves focus in the 2x2 hub grid, stopping at the edges. |
+| `static void open_tile(enum tile t)` | DONE | Opens the panel for a hub tile. |
+| `static void draw_background(void)` | DONE | Midnight fill and 90 fixed stars. |
+| `static void draw_topbar(void)` | DONE | Name, version, and live `up HH:MM:SS`. |
+| `static void draw_rail(void)` | DONE | Four squares, the focused one lit. |
+| `static void draw_hub(void)` | DONE | Four tiles with pixel icons, shadows, and cyan focus outline. |
+| `static void draw_tile(...)` | DONE | One tile. |
+| `static void draw_cards(void)` | DONE | UPTIME, MEMORY (free frames), HEAP (free bytes). Real values. |
+| `static void draw_dock(void)` | DONE | Key hints. |
+| `static void draw_window(void)` | DONE | One panel at a time: shadow, title bar, close mark, border, body. |
+| `static void draw_window_body(int bx, int by)` | DONE | About, System Monitor, Archive (list and file), Journal, Messages. |
+| `static void draw_lines(...)` | DONE | Multi-line text inside a panel. Does not wrap long lines (to-test D2). |
+| `static void draw_kv(...)` | DONE | "label value unit" on one line. |
+| `static int put_dec(char *out, uint32_t v)`, `put_2d` | DONE | Number formatting without printf. |
+
+Not built in the desktop: mouse, dragging, several windows at once, a Terminal
+panel that uses the shell, a Messages feature, icons beyond four simple shapes.
+
+## 6. Shell (text mode)
 
 ### `kernel/shell.c` / `kernel/shell.h`
+Used when the framebuffer is not available, and in `make run-text`.
+
 | Function | Status | Purpose |
 |---|---|---|
 | `void shell_run(void)` | DONE | Main loop. Reads keys, edits the line, runs commands on Enter. Never returns. |
@@ -164,9 +254,9 @@ Palette (constants in `vga.h`, from DESIGN.md section 3.1): `VGA_COLOR_DIM` (8),
 | `static void cmd_clear(void)` | DONE | Clears VGA and sends an ANSI clear to serial. |
 | `static void cmd_echo(const char *arg)` | DONE | Prints the text after `echo`. |
 | `static void cmd_uptime(void)` | DONE | Prints seconds and ticks from `timer_ticks()`. |
-| `static void cmd_mem(void)` | DONE | Prints usable, free, and in-use KiB from the PMM. Says so if there is no map. |
-| `static void cmd_ls(void)` | DONE | Lists every RAMFS path and a count. |
-| `static void cmd_cat(const char *arg)` | DONE | Prints one RAMFS file. Usage message if no path. "no such file" if not found. |
+| `static void cmd_mem(void)` | DONE | Usable, free, and in-use KiB from the frame allocator, plus heap free. |
+| `static void cmd_ls(void)` | DONE | Lists every archive path and a count. |
+| `static void cmd_cat(const char *arg)` | DONE | Prints one archive file. Usage message if no path. "no such file" if not found. |
 | `static void cmd_unknown(const char *cmd)` | DONE | Error line in the accent colour. |
 | `static void error_begin(void)` / `error_end(void)` | DONE | Switch to and from the accent colour. |
 | `static void skip_spaces(char **p)` | DONE | Advances past spaces. |
@@ -174,80 +264,41 @@ Palette (constants in `vga.h`, from DESIGN.md section 3.1): `VGA_COLOR_DIM` (8),
 
 Commands: `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat`.
 
-## 5. Kernel entry
+## 7. Kernel entry
 
 ### `kernel/kernel.c`
 | Function | Status | Purpose |
 |---|---|---|
-| `void kernel_main(uint32_t mb_magic, uint32_t mb_info)` | DONE | Initializes VGA and serial, prints the accent banner, checks the Multiboot magic, then GDT, IDT, PIC, timer, PMM and its self-test, enables interrupts, and starts the shell. |
-| `static void trigger_divide_error(void)` | DONE (test only) | Compiled only with `-DTESTAROSSA_FAULT_TEST` (`make fault-test`). |
+| `void kernel_main(uint32_t mb_magic, uint32_t mb_info)` | DONE | Order: VGA and serial, banner, Multiboot check, GDT, IDT, PIC, timer, PMM and self-test, paging and self-test, heap and self-test, framebuffer. If the framebuffer works, the desktop runs. Otherwise the text shell runs. |
+| `static void trigger_divide_error(void)` | TEST ONLY | `-DTESTAROSSA_FAULT_TEST` (`make fault-test`). Runs right after the timer starts. |
+| Page-fault test read | TEST ONLY | `-DTESTAROSSA_PAGE_FAULT_TEST` (`make pf-test`). Reads `0x80000000` after paging is on. |
+| Text-only build | - | `-DTESTAROSSA_NO_GRAPHICS` (`make run-text`) skips the framebuffer. |
 
-## 6. Planned (not written yet)
+## 8. Planned (not written yet)
 
-These are the interfaces to build to. They are not in the code yet.
+These are the interfaces still to build. Nothing below is in the code yet.
 
-### Paging - `kernel/paging.c` / `paging.h` (conditional)
+### Window manager (more than one panel at once)
 | Function | Purpose |
 |---|---|
-| `void paging_init(void)` | Build the page directory and identity-map kernel memory. |
-| `void paging_map(uint32_t virt, uint32_t phys, uint32_t flags)` | Map one page. |
-| `void page_fault_handler(regs_t *r)` | Decode CR2 and the error code, print them, halt. |
-
-Enable paging only after the page-fault handler prints correctly.
-
-### Heap - `kernel/heap.c` / `heap.h` (conditional, after paging)
-| Function | Purpose |
-|---|---|
-| `void heap_init(void)` | Start a simple allocator on top of PMM frames. |
-| `void *kmalloc(uint32_t size)` | Allocate `size` bytes. Returns `NULL` when out of memory. |
-| `void kfree(void *ptr)` | Free a block from `kmalloc`. |
-
-### Framebuffer - `kernel/framebuffer.c` / `framebuffer.h` (Week 3, Day 15-16)
-| Function | Purpose |
-|---|---|
-| `int fb_init(uint32_t mb_info)` | Read the framebuffer tag. Validate address, width, height, pitch, bpp. Return 0 only if the mode is usable. |
-| `void fb_put_pixel(int x, int y, uint32_t color)` | Clipped write. Respects pitch and pixel format. |
-| `int fb_width(void)`, `int fb_height(void)` | Validated mode size. |
-
-Boot cost: the Multiboot header flags must request a video mode (flag bit 0x4
-plus the video fields). That changes the boot protocol, so it needs a
-known-good checkpoint first (see the master plan, section 7).
-
-### Drawing - `kernel/draw.c` / `draw.h` (after framebuffer)
-| Function | Purpose |
-|---|---|
-| `void draw_fill_rect(int x, int y, int w, int h, uint32_t c)` | Filled rectangle, clipped. |
-| `void draw_outline_rect(int x, int y, int w, int h, uint32_t c)` | 1-pixel border. |
-| `void draw_line(int x0, int y0, int x1, int y1, uint32_t c)` | Bresenham line. |
-
-### Font - `kernel/font.c` / `font.h` (after framebuffer)
-| Function | Purpose |
-|---|---|
-| `void font_draw_char(int x, int y, char c, uint32_t fg, uint32_t bg)` | Draw one 8x16 glyph. |
-| `void font_draw_string(int x, int y, const char *s, uint32_t fg, uint32_t bg)` | Draw a string. |
-
-### Desktop - `kernel/desktop.c` / `desktop.h` (Week 3-4)
-| Function | Purpose |
-|---|---|
-| `void desktop_init(void)` | Set the initial focus (first hub tile). |
-| `void desktop_draw(void)` | Redraw background, top bar, rail, hub, cards, dock. |
-| `void desktop_handle_key(int key)` | Tab, arrows, Enter, Esc, number keys. Updates focus and open windows. |
-
-### Windows - `kernel/window.c` / `window.h` (Week 4)
-| Function | Purpose |
-|---|---|
-| `int window_open(const char *title, int kind)` | Open a panel. Returns an id, or -1 when the limit (4) is reached. |
+| `int window_open(const char *title, int kind)` | Open a panel, return an id or -1 when full. |
 | `void window_close(int id)` | Close a panel. |
-| `void window_draw(int id, int focused)` | Draw chrome and body. |
+| `void window_focus(int id)` | Make a panel the active one and raise it. |
 
-### Apps - `kernel/apps.c` (Week 4)
+### Terminal panel
 | Function | Purpose |
 |---|---|
-| `void app_about_draw(int x, int y, int w, int h)` | Name, version, build details. |
-| `void app_sysmon_draw(int x, int y, int w, int h)` | Real uptime from `timer_ticks()`, and free frames from `pmm_free_frames()`. |
-| `void app_files_draw(int x, int y, int w, int h)` | Lists RAMFS files. |
+| `void term_put(char c)` | Send shell output to a text area inside a window. Needs the log output to be pluggable first. |
 
-## 7. Rules for writing a function
+### Mouse
+| Function | Purpose |
+|---|---|
+| `void mouse_irq_handler(void)` | Read the PS/2 mouse packets (IRQ12). Optional, last. |
+
+### Scheduler and user mode
+Not planned for this exam (see the master plan, P3).
+
+## 9. Rules for writing a function
 
 1. Put the name in this file before writing it, with its purpose and inputs.
 2. Use the `TESTAROSSA_` prefix for header guards and the name `Testarossa`
