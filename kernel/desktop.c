@@ -113,7 +113,7 @@ static void draw_dock(void) {
     int y = FB_HEIGHT - DOCK_H;
     draw_rect(0, y, FB_WIDTH, DOCK_H, C_PANEL);
     draw_rect(0, y, FB_WIDTH, 1, C_AMETHYST);
-    draw_text(12, y + 10, "Tab move   arrows move   Enter open   Esc close", C_DIM);
+    draw_text(12, y + 10, "Tab move   arrows move   Enter open   Esc close   A about", C_DIM);
 }
 
 static const char *rail_labels[4] = { "AR", "ME", "JO", "SY" };
@@ -381,6 +381,8 @@ static void handle_key(int c) {
     case KEY_DOWN:  move_focus(0, 1);  break;
     case '\t':      focus = (enum tile)(((int)focus + 1) % TILE_COUNT); break;
     case '\n':      open_tile(focus); break;
+    case 'a':                           /* About has no tile; A opens it directly */
+    case 'A':       open_win = WIN_ABOUT; viewing = 0; break;
     default:        break;
     }
 }
