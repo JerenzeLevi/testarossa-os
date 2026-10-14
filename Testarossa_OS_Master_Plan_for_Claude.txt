@@ -1,0 +1,663 @@
+TESTAROSSA OS — MASTER PLAN FOR CLAUDE CODE
+Version 1.0 | 14 October 2026
+Purpose: A realistic, four-week final-exam plan for a from-scratch 32-bit x86 teaching OS with an original cyber-gothic, Y2K-inspired desktop.
+
+======================================================================
+0. EXECUTIVE SUMMARY
+======================================================================
+
+PROJECT NAME
+Testarossa OS
+
+PROJECT TYPE
+A from-scratch educational / hobby operating system for 32-bit x86, written
+primarily in freestanding C and NASM assembly, built in WSL2 Ubuntu and run
+under QEMU.
+
+CORE GOAL
+Build a real, bootable teaching OS with its own kernel and a small,
+interactive desktop shell if time permits. The visual identity combines:
+- Early-2000s Y2K desktop and internet nostalgia.
+- An abandoned-computer / digital-archive mystery atmosphere inspired by
+  the broad genre and mood of Lily's World XD.
+- Cyber-gothic elegance.
+- A spatial-inspired 2D interface using layered floating panels and visual
+  depth.
+
+IMPORTANT: The goal is NOT to build a Linux distribution, Windows clone,
+full 3D desktop, VR operating system, or production-ready general-purpose
+OS. The project should demonstrate real operating-system concepts and
+present them through a distinctive original interface.
+
+PROJECT DESCRIPTION FOR THE README / EXAM
+"Testarossa OS is a 32-bit x86 educational operating system with a custom
+monolithic kernel written in C and NASM. Designed for QEMU, it explores
+low-level operating-system concepts while developing an original,
+cyber-gothic desktop inspired by early-2000s digital culture, layered
+spatial interfaces, and the mystery of exploring a forgotten computer."
+
+======================================================================
+1. CURRENT REPORTED STATE — VERIFY BEFORE CHANGING
+======================================================================
+
+Environment:
+- WSL2 with Ubuntu.
+- NASM, qemu-system-i386, make, GCC with -m32 and freestanding flags.
+- Build: `make` -> `build/testarossa.elf` is the desired eventual output.
+  The existing Makefile may still produce `build/vesper.elf`; inspect and
+  update consistently rather than assuming.
+- Run: `make run`, with serial output visible in the terminal.
+- Custom linker script places the kernel around 1 MiB.
+
+Reported files:
+- boot/multiboot.asm — existing Multiboot entry.
+- kernel/vga.c and kernel/vga.h — VGA text output.
+- kernel/serial.c and kernel/serial.h — serial output.
+- kernel/kernel.c — kernel entry / initialization.
+- Keyboard / IRQ1 was not visible in the reported tree.
+- Week 2+ systems were not yet implemented.
+
+These are user-reported facts, not proof. Claude MUST inspect the actual
+repository and run the current build before deciding what is working.
+
+======================================================================
+2. WHAT KIND OF OS ARE WE BUILDING?
+======================================================================
+
+Target architecture:
+- ISA: 32-bit x86 / i386.
+- CPU mode: protected mode.
+- Kernel design: small monolithic teaching kernel.
+- Languages: freestanding C and NASM assembly.
+- Boot: preserve the current Multiboot-compatible path if working.
+- Emulator: QEMU system emulation for i386.
+- Build: current GCC -m32 setup may be retained if validated. A proper
+  i686-elf cross-compiler can be considered, but changing toolchains must
+  be justified and must not derail the deadline.
+- Linker: existing custom linker.ld, kernel loaded near 1 MiB.
+- Debugging: serial output remains available throughout the project.
+- Fallback display: VGA text output remains available.
+- Storage: RAM filesystem before any physical disk driver.
+- Graphics: framebuffer-driven 2D drawing if a safe framebuffer can be
+  obtained through the boot path.
+- User mode and processes: stretch goals only.
+
+This is a real OS project because the kernel boots and manages low-level
+execution. The desktop is a user-facing system shell, not the kernel itself.
+
+======================================================================
+3. DESIGN BIBLE — DO NOT CHANGE THE USER'S REQUESTED AESTHETIC
+======================================================================
+
+The name is TESTAROSSA OS. The name changed from the placeholder Vesper OS.
+Do not revert the name to Vesper.
+
+THE VISUAL NORTH STAR
+"An abandoned early-2000s computer discovered inside a cyber-gothic
+digital cathedral."
+
+The interface should evoke exploring an old personal computer that holds
+forgotten files, journal entries, messages, old personal pages, and strange
+digital artifacts. It should feel like a carefully designed indie mystery
+game's simulated computer, while still being presented as an operating
+system desktop.
+
+INSPIRATION BOUNDARY
+The user likes Lily's World XD's broad aesthetic qualities:
+- Early-2000s operating-system nostalgia.
+- Retro internet / personal-blog / instant-message interfaces.
+- Sparkly GIF-like decorations and lo-fi digital atmosphere.
+- Browsing journals, messages, photos, and archive-like files.
+- A sense of investigating an old computer.
+
+Use these as broad genre and mood references only. Do NOT copy its exact
+screens, layouts, text, characters, narrative, assets, logos, or distinctive
+artwork. Create original Testarossa branding, windows, icons, content, and
+layout. No copyrighted game assets should be required.
+
+CYBER-GOTHIC + SPATIAL UI
+- Dark midnight navy base.
+- Deep violet and amethyst illumination.
+- Electric cyan and hot magenta highlights.
+- Elegant silver / lavender text.
+- Floating and overlapping windows with shadows and layered depth.
+- A central navigation hub.
+- Old desktop controls mixed with restrained futuristic elements.
+- Optional subtle stars, scanlines, pixel sparkles, and parallax-like layers.
+- A mysterious but legible interface, not a cluttered hacker cliché.
+
+Suggested palette:
+- Midnight: #090A16
+- Deep violet: #30205E
+- Amethyst: #9B7BFF
+- Electric cyan: #36E4F5
+- Hot magenta: #FF66C4
+- Pale lavender text: #E8DFF5
+
+Do NOT turn the interface into a Ferrari-themed UI just because of the
+name Testarossa. Do not switch to a red-dominant palette. The original
+violet/cyan/magenta cyber-gothic spatial UI remains the chosen direction.
+
+SPATIAL UI — REALISTIC SCOPE
+For this exam, "spatial" means a 2D desktop that suggests depth through
+layered panels, overlap, subtle perspective, floating status cards, and
+clear spatial grouping. It does NOT mean VR, stereoscopic rendering,
+head tracking, or a full 3D engine.
+
+SUGGESTED DESKTOP COMPOSITION
+1. Background: original dark digital archive / abstract cathedral motif.
+2. Top bar: TESTAROSSA OS, version, uptime or tick count when available.
+3. Central hub: a few floating module tiles / launch panels.
+4. Left navigation rail: system shortcuts.
+5. Right-side status cards: truthful system information.
+6. Bottom dock/taskbar: open-panel indicators and familiar Y2K cues.
+7. Windows: close, select, and switch reliably. Dragging is optional.
+8. Optional retro instant-messenger window, Journal / Archive, and Files
+   panels if there is time and the supporting functions really exist.
+
+The visual hierarchy must be readable. Effects must not obscure text or
+make the system slower or less stable.
+
+======================================================================
+4. SCOPE STRATEGY: REAL OS FIRST, DESKTOP SECOND
+======================================================================
+
+LAYER A — REAL OPERATING SYSTEM CORE (mandatory)
+- Reproducible build and boot.
+- Kernel entry verified.
+- Serial logging.
+- VGA text fallback.
+- Keyboard input and basic command interface.
+- Interrupt handling and timer where feasible.
+- Memory management milestones with tests.
+- Architecture documentation and honest feature claims.
+
+LAYER B — TESTAROSSA DESKTOP (high-value stretch goal)
+- Verified framebuffer.
+- Pixel/rectangle/line drawing and a small font.
+- Original desktop background and panels.
+- Keyboard navigation.
+- About and System Monitor panels that show real values.
+- Files / Archive panel only if backed by actual in-memory files.
+- Mouse, dragging, animations, and visual polish only after the base GUI
+  works.
+
+Do not trade a bootable kernel for a static picture. If the GUI cannot be
+completed, keep the actual shell working and document a mockup honestly as
+a concept design rather than claiming it runs in the OS.
+
+======================================================================
+5. REPOSITORY / CODING RULES FOR CLAUDE CODE
+======================================================================
+
+MANDATORY FIRST ACTIONS
+1. Inspect the repository and all relevant source files, Makefile,
+   linker.ld, boot assembly, headers, and current output.
+2. Run the existing `make` build before editing.
+3. Run `make run` and observe whether the kernel boots.
+4. Identify the current Multiboot version and bootloader contract.
+5. Summarize the current state, what is confirmed, and the first failure.
+6. Make a known-good checkpoint before risky changes.
+
+DO NOT:
+- Rewrite the entire project in one response.
+- Delete working code just to match a proposed directory structure.
+- Change boot protocols or toolchains without explaining the cost.
+- Pretend VGA text memory is a pixel framebuffer.
+- Guess a framebuffer address or video mode.
+- Enable paging before page tables and fault diagnostics are ready.
+- Allocate memory before an allocator exists.
+- Use libc or hosted-runtime assumptions in the kernel.
+- Claim features that are only mockups or untested code.
+- Add complex third-party libraries without a clear need.
+- Spend early days on decoration while the kernel is unstable.
+
+IMPLEMENTATION LOOP
+For each milestone:
+1. State the intended change.
+2. Make the smallest coherent change.
+3. Compile.
+4. Boot in QEMU when applicable.
+5. Report the exact commands and results.
+6. Fix regressions before adding more features.
+7. Keep serial diagnostics and VGA fallback intact.
+
+At the end of each task, report:
+- Files changed.
+- Features implemented.
+- Build command and outcome.
+- QEMU test and outcome.
+- Known bugs / limitations.
+- Next recommended milestone.
+
+COMPILER / LINKER CONSIDERATIONS
+Use appropriate freestanding 32-bit flags for the chosen toolchain, such
+as -m32, -ffreestanding, -fno-stack-protector, and appropriate no-PIE flags.
+Use the custom linker script and correct ELF format. The exact flags must
+be verified against the current environment rather than copied blindly.
+Provide kernel-owned implementations of memory/string routines if needed.
+Avoid floating point, C++ runtime features, exceptions, and normal OS
+services. Use explicit-width types where suitable.
+
+======================================================================
+6. SUGGESTED DIRECTORY STRUCTURE
+======================================================================
+
+Preserve the existing structure where practical. Add modules only when
+they are needed; do not create empty scaffolding for every future feature.
+
+boot/
+  multiboot.asm
+kernel/
+  kernel.c
+  vga.c
+  vga.h
+  serial.c
+  serial.h
+  gdt.c / gdt.h
+  idt.c / idt.h
+  interrupts.asm
+  pic.c / pic.h
+  keyboard.c / keyboard.h
+  timer.c / timer.h
+  memory/
+    pmm.c / pmm.h
+    paging.c / paging.h
+    heap.c / heap.h
+  fs/
+    ramfs.c / ramfs.h
+  shell/
+    shell.c / shell.h
+  gui/
+    framebuffer.c / framebuffer.h
+    draw.c / draw.h
+    font.c / font.h
+    desktop.c / desktop.h
+    window.c / window.h
+  apps/
+    about.c
+    system_info.c
+    files.c
+linker.ld
+Makefile
+README.md
+docs/
+  ARCHITECTURE.md
+  DEMO_SCRIPT.md
+build/   generated artifacts; keep ignored
+
+This is a possible destination, not a mandate to restructure immediately.
+
+======================================================================
+7. FOUR-WEEK MILESTONE PLAN
+======================================================================
+
+WEEK 1 — BOOT, OUTPUT, INPUT
+Goal: a repeatably booting kernel.
+
+Day 1: Baseline audit
+- Inspect all relevant files.
+- Run build and QEMU.
+- Identify first failure and fix it before expanding scope.
+Acceptance: make succeeds and serial output proves kernel entry.
+
+Day 2: Boot path
+- Confirm Multiboot header, entry symbol, stack setup, linker address,
+  CPU mode, and assembly-to-C handoff.
+- Add serial startup milestones.
+Acceptance: deterministic boot and documented entry path.
+
+Day 3: Output
+- Stabilize serial and VGA text output.
+- Add simple INFO/WARN/ERROR logging if useful.
+Acceptance: useful diagnostics visible and no regressions.
+
+Day 4–5: Interrupt and keyboard foundation
+- Set up GDT/IDT and appropriate interrupt stubs.
+- Remap/configure legacy PIC if needed.
+- Implement IRQ1 and basic PS/2 scancode translation.
+- Support printable keys, Enter, and Backspace as time allows.
+- Send EOI correctly and keep ISR work short.
+Acceptance: keyboard input works without an interrupt storm or frozen VM.
+
+WEEK 2 — TIMER AND MEMORY
+Goal: show real low-level OS concepts.
+
+Day 6–7: GDT/IDT and exception diagnostics
+- Define kernel code/data descriptors.
+- Handle relevant CPU exceptions and log useful diagnostics.
+- Validate C/assembly calling conventions.
+Acceptance: expected interrupts/exceptions are handled or diagnosed.
+
+Day 8: Timer
+- Add a simple timer tick counter.
+- Report uptime/ticks without doing complex work inside the ISR.
+Acceptance: ticks advance predictably.
+
+Day 9–10: Physical memory manager
+- Parse bootloader memory information only if it is available and reliable.
+- Reserve kernel, boot information, and occupied memory ranges.
+- Implement a basic frame allocator (bitmap or free-frame stack).
+- If a limited QEMU-only memory model is necessary, document it honestly.
+Acceptance: allocation tests do not return reserved frames.
+
+Day 11–12: Paging and heap, conditional
+- Build page tables and required identity mappings.
+- Add fault diagnostics before enabling paging.
+- Enable paging only after the setup is verified.
+- Implement a small heap only after the underlying allocator works.
+Acceptance: documented page translations and basic allocator/heap tests.
+If this becomes a schedule risk, protect the bootable shell milestone.
+
+WEEK 3 — SHELL AND GRAPHICS FOUNDATION
+Goal: a usable command interface and a verified path to graphics.
+
+Day 13–14: Shell
+Implement a small command parser with commands that really work:
+- help
+- clear
+- about
+- version
+- uptime
+- mem, only if memory data exists
+- echo
+- ls/cat only if RAMFS exists
+Unsupported commands should explain that they are not implemented.
+Acceptance: interactive shell can be demonstrated live in QEMU.
+
+Day 15–16: Framebuffer research and setup
+- Inspect current boot protocol and QEMU configuration.
+- Verify whether the boot path can provide framebuffer information.
+- Do not assume VGA text memory is a framebuffer.
+- Prefer a bootloader-provided framebuffer request / documented mechanism.
+- If protocol migration is necessary, explain the migration cost and
+  preserve a known-good checkpoint first.
+Acceptance: kernel validates framebuffer base, width, height, pitch, and
+pixel format before drawing anything.
+
+Day 17–18: Drawing primitives
+- Pixel, filled rectangle, outline rectangle, line.
+- Tiny bitmap font.
+- Bounds checks and pitch/pixel-format handling.
+Acceptance: screen shows readable text and geometric shapes.
+
+Day 19–21: Testarossa desktop prototype
+- Draw the background, top strip, taskbar, navigation rail, central hub,
+  and a few panels.
+- Implement a simple state model for selected/open panels.
+- Keyboard navigation is mandatory.
+- Mouse is optional.
+Acceptance: desktop really renders in QEMU and opens at least one panel
+that displays actual system information.
+
+WEEK 4 — FUNCTIONAL PANELS, STABILITY, SUBMISSION
+Goal: one coherent, testable demo.
+
+Day 22–23: Core desktop panels
+Priority:
+1. About Testarossa — OS name, version, architecture and build details.
+2. System Monitor — actual uptime/ticks and truthful memory information.
+3. Terminal — same working kernel shell, not a picture of a terminal.
+4. Archive / Files — only if RAMFS exists.
+Acceptance: at least two panels are functional and use real kernel state.
+
+Day 24: RAMFS if stable
+- Small in-memory filesystem with a few built-in read-only files.
+- Example original demo files: /readme.txt, /archive/entry01.txt,
+  /system/about.txt.
+- ls and cat should read those entries if implemented.
+- Do not claim persistent disk storage: RAMFS contents reset on reboot.
+Acceptance: repeatable file listing and reading.
+
+Day 25: Stability
+- Cold boot and repeated boot.
+- Keyboard input and shell edge cases.
+- Desktop panel opening/closing.
+- Invalid commands.
+- Keep serial diagnostics.
+Acceptance: the same demo works repeatedly without editing source.
+
+Day 26: Documentation
+- README with prerequisites, build/run, controls, architecture, features,
+  limitations, and screenshots if available.
+- Architecture diagram: boot -> assembly entry -> C kernel -> interrupts /
+  memory / keyboard -> shell / desktop.
+- Explain at least one interrupt path and one memory-management concept.
+Acceptance: another student can build and run the project.
+
+Days 27–28: Buffer
+- Fix bugs and rehearse the exam demo.
+- Polish visuals only if core acceptance tests pass.
+- Do not begin major scheduler/user-mode work during the buffer unless
+  all mandatory milestones are already complete.
+
+======================================================================
+8. GRAPHICAL DESKTOP IMPLEMENTATION DETAILS
+======================================================================
+
+The GUI should be original and should be developed in the kernel's
+available framebuffer path. Do not use HTML, React, a browser, or an
+external desktop application as a substitute for the OS GUI.
+
+First prove:
+- A framebuffer is actually provided.
+- Base address and memory range are valid.
+- Width, height, pitch, and pixel format are known.
+- Drawing respects pitch and pixel format.
+- Out-of-bounds coordinates are rejected or clipped.
+- Serial logs remain usable.
+
+Then implement:
+A. Full background.
+B. Simple built-in font.
+C. Window rectangles, borders, title bars, and buttons.
+D. Desktop shell layout.
+E. Keyboard navigation and panel state.
+F. About and System Monitor with actual data.
+G. RAMFS-backed Files / Archive if available.
+H. Mouse, draggable windows, sparkles, scanlines, and other effects last.
+
+The first mode should be a resolution actually provided by the boot path.
+Do not assume a specific mode or hardcode a framebuffer address.
+
+DESIGN COMPONENTS
+- Testarossa logo/wordmark in a custom text style.
+- Central spatial hub with Archive, Messages, Journal, System.
+- Familiar early-2000s title bars and pixel-like icons.
+- Floating panels with subtle depth and violet shadows.
+- Cyan focus/selection state.
+- Magenta accent details.
+- Small decorative sparkles used sparingly.
+- Optional ambient static / scanline effect only if inexpensive.
+- Keyboard navigation with visible selection state.
+- Keep readable contrast and avoid excessive visual clutter.
+
+FUNCTIONALITY VS. PRESENTATION
+A panel may use sample fictional content only when the content is clearly
+a built-in demo artifact. It must not pretend to show real files, real
+messages, network state, or memory statistics that the kernel does not
+actually have.
+
+======================================================================
+9. FEATURE PRIORITIES
+======================================================================
+
+P0 — MUST DELIVER
+- Clean, reproducible build.
+- Kernel boots in QEMU.
+- Serial diagnostics.
+- VGA text fallback.
+- Keyboard input and simple shell.
+- README, architecture explanation, and repeatable exam demo.
+
+P1 — HIGH VALUE IF STABLE
+- GDT/IDT and exception diagnostics.
+- Timer tick counter.
+- Physical memory allocator.
+- Framebuffer and basic drawing.
+- Testarossa desktop with About and System Monitor.
+
+P2 — STRETCH GOALS
+- Paging and heap after allocator correctness.
+- RAMFS and Files / Archive panel.
+- Mouse input and draggable windows.
+- More desktop panels and subtle visual effects.
+- Simple scheduler only if the kernel is already stable.
+
+P3 — DO NOT PROMISE FOR THIS EXAM
+- Production-grade user-mode process isolation.
+- Complete context switching and robust syscall infrastructure.
+- Full user-mode shell.
+- USB, Wi-Fi, networking, audio, or modern storage drivers.
+- Persistent disk filesystem.
+- VR / full 3D spatial computing.
+- Running Linux or Windows applications.
+
+A functioning, explainable kernel plus a real GUI is more valuable than a
+long feature list full of unfinished subsystems.
+
+======================================================================
+10. EXAM DEMO SCRIPT (4–6 MINUTES)
+======================================================================
+
+1. Introduce Testarossa OS as a custom 32-bit x86 educational OS, not a
+   Linux theme or a browser mockup.
+2. Run `make` and explain that it builds the kernel ELF.
+3. Run `make run` and show serial startup diagnostics.
+4. Explain the assembly entry and handoff to the C kernel.
+5. Demonstrate keyboard input and implemented shell commands.
+6. If working, show the desktop running inside QEMU.
+7. Open About and System Monitor and explain which values are real.
+8. Explain one interrupt path and one memory-management feature.
+9. Acknowledge what is implemented, simulated, and planned.
+10. End with the visual design goal and future roadmap.
+
+Never represent a static concept image as a running kernel GUI. Label
+features honestly.
+
+======================================================================
+11. DEFINITION OF DONE
+======================================================================
+
+[ ] `make clean && make` succeeds from a clean state.
+[ ] `make run` boots Testarossa in QEMU.
+[ ] Serial logs prove kernel entry and initialization.
+[ ] VGA text fallback remains available.
+[ ] Keyboard input and basic shell commands work.
+[ ] Implemented interrupt/memory features have repeatable tests or demos.
+[ ] If GUI is claimed, the kernel draws it in QEMU using a verified
+    framebuffer.
+[ ] At least two GUI panels use real implemented functionality.
+[ ] README documents build, run, architecture, controls, and limitations.
+[ ] The exam demonstration can be repeated.
+[ ] No mockup is presented as an implemented OS feature.
+[ ] Branding says Testarossa OS consistently; no leftover Vesper naming
+    remains in visible strings, docs, or build output unless explicitly
+    retained as a historical note.
+
+======================================================================
+12. MASTER PROMPT TO GIVE CLAUDE CODE
+======================================================================
+
+You are the senior systems programmer and technical mentor for TESTAROSSA
+OS, a from-scratch 32-bit x86 educational operating system written in
+freestanding C and NASM.
+
+MISSION
+Build a real, bootable, explainable teaching OS for QEMU. If time and the
+boot protocol permit, add an original framebuffer-driven 2D desktop with
+cyber-gothic, spatial-inspired, early-2000s internet aesthetics. The desktop
+should feel like investigating a forgotten computer with journals, old
+messages, archives, and retro desktop windows, inspired by the broad mood
+and genre of Lily's World XD. Do not copy that game's specific assets,
+screens, layouts, characters, text, story, or branding.
+
+IDENTITY
+- Product name: TESTAROSSA OS.
+- Visual identity: midnight navy, violet, amethyst, electric cyan, hot
+  magenta, pale lavender text.
+- Mood: cyber-gothic elegance + early-2000s internet nostalgia + abandoned
+  digital archive mystery.
+- UI: spatial-inspired 2D layout with layered panels and depth.
+- Do not use a Ferrari/car theme or switch to a red-dominant palette.
+- Do not revert to the placeholder name Vesper.
+
+CURRENT REPORTED REPOSITORY
+- WSL2 Ubuntu.
+- NASM, QEMU system i386, make, GCC -m32 freestanding.
+- boot/multiboot.asm.
+- kernel/vga.c/.h.
+- kernel/serial.c/.h.
+- kernel/kernel.c.
+- linker.ld around 1 MiB.
+- keyboard/IRQ1 and Week 2+ were not visible in the reported tree.
+- The Makefile may still use the old output name; inspect before changing.
+These are reported facts; verify them against actual source.
+
+MANDATORY WORKFLOW
+1. Inspect repository, source, Makefile, linker, and boot protocol.
+2. Run the existing build and QEMU boot before editing.
+3. Report confirmed current features and failures.
+4. Preserve a known-good checkpoint.
+5. Implement one milestone at a time.
+6. Compile and boot-test after each meaningful change.
+7. Keep serial diagnostics and VGA fallback.
+8. Report changed files, tests, results, and known issues.
+9. Do not implement the whole OS in one giant rewrite.
+10. Never claim an untested feature works.
+
+ORDER OF WORK
+1. Build/boot baseline.
+2. Serial + VGA stability.
+3. GDT/IDT, exceptions, PIC, keyboard IRQ.
+4. Timer.
+5. Physical memory allocator.
+6. Paging and heap only after the allocator and fault handling are reliable.
+7. Keyboard-driven shell.
+8. Verified framebuffer path.
+9. Drawing primitives and font.
+10. Testarossa desktop.
+11. About and System Monitor panels with real data.
+12. RAMFS and Files / Archive panel if time remains.
+13. Mouse, animation, scheduler, user mode only after mandatory work is
+    stable and time remains.
+
+TECHNICAL RULES
+- Use freestanding 32-bit C and NASM.
+- Respect boot ABI, linker script, and assembly/C calling conventions.
+- Do not assume libc, heap, paging, framebuffer, or disk storage exists.
+- Keep ISR handlers short.
+- Validate memory ranges and framebuffer parameters.
+- Never write to a guessed framebuffer address.
+- Do not present a browser-based UI as the OS GUI.
+- Do not fabricate memory stats or shell functionality.
+- Make simple implementations that the student can understand and defend.
+
+FIRST TASK
+Do NOT immediately write the whole operating system. Inspect the repo and
+run the existing build/boot first. Return:
+A. Current architecture and boot path.
+B. Existing features confirmed from source.
+C. Build/boot errors.
+D. The smallest safe next implementation milestone.
+E. Risks to the four-week deadline.
+Then implement only the smallest next milestone and verify it.
+
+SUCCESS CRITERION
+The strongest result is a repeatably bootable kernel with real input and
+a shell, a few properly implemented low-level mechanisms, and—if the
+framebuffer work succeeds—an original Testarossa desktop that actually
+runs in QEMU. Visual polish must never replace functional kernel work.
+
+======================================================================
+13. FINAL PROJECT PRINCIPLE
+======================================================================
+
+TESTAROSSA OS should be ambitious in identity and disciplined in scope.
+
+The kernel makes it an operating system.
+The interface makes it memorable.
+The documentation and repeatable demo make it defensible in an exam.
+
+Build the real system first. Let the cyber-gothic Y2K desktop grow from
+the capabilities that the kernel can genuinely support.

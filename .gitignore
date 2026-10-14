@@ -1,0 +1,5 @@
+build/
+CLAUDE.md
+CLAUDE.local.md
+*.o
+*.elf
