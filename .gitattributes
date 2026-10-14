@@ -1,0 +1,4 @@
+# Keep source files as LF so make, gcc, and nasm inside WSL work for everyone.
+* text=auto eol=lf
+*.png binary
+*.ppm binary

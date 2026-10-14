@@ -7,5 +7,6 @@
 void log_putc(char c);
 void log_puts(const char *s);
 void log_hex(uint32_t v);
+void log_dec(uint32_t v);
 
 #endif

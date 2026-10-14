@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include "io.h"
 #include "vga.h"
 
 /* VGA text mode buffer: 80x25 cells, each cell is (attribute << 8) | char. */
@@ -12,10 +13,21 @@
 static volatile uint16_t *const vga_buf = (volatile uint16_t *)0xB8000;
 static int row, col;
 
-static void vga_clear(void) {
+/* Move the blinking hardware cursor to the current row and column.
+ * Without this the cursor stays where the BIOS left it. */
+static void vga_sync_cursor(void) {
+    uint16_t pos = (uint16_t)(row * VGA_WIDTH + col);
+    outb(0x3D4, 0x0F);
+    outb(0x3D5, (uint8_t)(pos & 0xFF));
+    outb(0x3D4, 0x0E);
+    outb(0x3D5, (uint8_t)((pos >> 8) & 0xFF));
+}
+
+void vga_clear(void) {
     for (int i = 0; i < VGA_WIDTH * VGA_HEIGHT; i++)
         vga_buf[i] = (uint16_t)(' ' | (VGA_COLOR << 8));
     row = col = 0;
+    vga_sync_cursor();
 }
 
 static void vga_scroll(void) {
@@ -48,6 +60,7 @@ void vga_putc(char c) {
     }
     if (row == VGA_HEIGHT)
         vga_scroll();
+    vga_sync_cursor();
 }
 
 void vga_puts(const char *s) {

@@ -24,8 +24,8 @@ void pic_init(void) {
     /* ICW4: 8086 mode. */
     outb(PIC1_DATA, 0x01); io_wait();
     outb(PIC2_DATA, 0x01); io_wait();
-    /* OCW1: mask everything except IRQ1 (bit 1 cleared on master). */
-    outb(PIC1_DATA, 0xFD);
+    /* OCW1: unmask IRQ0 (timer) and IRQ1 (keyboard); mask the rest. */
+    outb(PIC1_DATA, 0xFC);
     outb(PIC2_DATA, 0xFF);
 }
 

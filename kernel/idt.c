@@ -4,6 +4,7 @@
 #include "log.h"
 #include "pic.h"
 #include "keyboard.h"
+#include "timer.h"
 
 struct idt_entry {
     uint16_t offset_low;
@@ -76,7 +77,9 @@ void isr_dispatch(regs_t *r) {
 
     if (r->int_no >= IRQ_BASE && r->int_no < IRQ_BASE + IRQ_COUNT) {
         uint8_t irq = (uint8_t)(r->int_no - IRQ_BASE);
-        if (irq == 1)
+        if (irq == 0)
+            timer_irq_handler();
+        else if (irq == 1)
             keyboard_irq_handler();
         pic_send_eoi(irq);
     }

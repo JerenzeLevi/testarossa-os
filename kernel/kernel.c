@@ -5,9 +5,19 @@
 #include "gdt.h"
 #include "idt.h"
 #include "pic.h"
-#include "keyboard.h"
+#include "timer.h"
+#include "shell.h"
+#include "version.h"
 
-#define TESTAROSSA_VERSION "0.1.0"
+#ifdef TESTAROSSA_FAULT_TEST
+/* Build-time check only: `make fault-test`. Divides by zero to trigger #DE,
+ * which should print an EXCEPTION line and halt. */
+static void trigger_divide_error(void) {
+    volatile uint32_t zero = 0;
+    volatile uint32_t x = 1;
+    x = x / zero;
+}
+#endif
 
 void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     (void)mb_info;
@@ -15,9 +25,8 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     vga_init();
     serial_init();
 
-    vga_puts("  ~*~ T E S T A R O S S A   O S ~*~  v" TESTAROSSA_VERSION "\n");
-    vga_puts("  xoxo  it's not a bug, it's a feature  xoxo\n\n");
-    serial_puts("Testarossa OS v" TESTAROSSA_VERSION " booting...\n");
+    vga_puts("  ~*~ " TESTAROSSA_NAME " ~*~  v" TESTAROSSA_VERSION "\n\n");
+    serial_puts(TESTAROSSA_NAME " v" TESTAROSSA_VERSION " booting...\n");
 
     if (mb_magic != 0x2BADB002) {
         vga_puts("error: not loaded by a multiboot bootloader\n");
@@ -31,22 +40,16 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     serial_puts("IDT loaded\n");
 
     pic_init();
-    serial_puts("PIC remapped to vectors 32-47; IRQ1 (keyboard) unmasked\n");
+    serial_puts("PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked\n");
+
+    timer_init();
+    serial_puts("PIT programmed to 100 Hz\n");
+
+#ifdef TESTAROSSA_FAULT_TEST
+    __asm__ volatile("sti");
+    trigger_divide_error();
+#endif
 
     __asm__ volatile("sti");
-    vga_puts("Keyboard ready. Type something.\n");
-
-    for (;;) {
-        /* Check the queue with interrupts off, then sleep with "sti; hlt".
-         * sti delays interrupts by one instruction, so a key pressed between
-         * the check and hlt cannot be missed. */
-        __asm__ volatile("cli");
-        int c = keyboard_getc();
-        if (c < 0) {
-            __asm__ volatile("sti; hlt");
-            continue;
-        }
-        __asm__ volatile("sti");
-        log_putc((char)c);
-    }
+    shell_run();
 }
