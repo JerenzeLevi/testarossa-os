@@ -3,7 +3,9 @@
 #include "keyboard.h"
 
 /* PS/2 keyboard data port. The 8042 controller delivers scancode set 1 by default. */
-#define KBD_DATA 0x60
+#define KBD_DATA   0x60
+#define KBD_STATUS 0x64
+#define KBD_AUX    0x20         /* status bit: the waiting byte is from the mouse */
 
 #define SC_LSHIFT   0x2A
 #define SC_RSHIFT   0x36
@@ -48,6 +50,8 @@ static void queue_push(char c) {
 }
 
 void keyboard_irq_handler(void) {
+    if (inb(KBD_STATUS) & KBD_AUX)
+        return;                         /* a mouse byte; IRQ12 reads it */
     uint8_t sc = inb(KBD_DATA);
 
     /* Arrow keys and a few others send 0xE0 first, then the code. */

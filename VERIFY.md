@@ -28,6 +28,7 @@ README.md (build and run).
 | 13 | Desktop: hub, cards, panels, arrows, Tab, Enter, Esc | 3822299 | pass | pass (screen, scripted keys) | pass | PASS |
 | 14 | Regression: fault-test did not trigger after desktop was added (fixed) | 3822299 | pass | pass (serial) | n/a | FIXED, see Entry 14 |
 | 15 | About panel (key A), text corrected | next commit | pass | pass (screen) | pass | PASS |
+| 16 | Terminal window, several windows, PS/2 mouse | next commit | pass | pass (serial + screen, scripted keys and mouse) | pass | PASS |
 
 ---
 
@@ -186,6 +187,38 @@ README.md (build and run).
   is the only way to reach it. The dock hint shows `A about`.
 - Screenshot: `docs/screenshots/desktop-about.png`. Text matches the code.
 
+## Entry 16 - Terminal window, several windows, PS/2 mouse (next commit)
+
+- Added: `log_set_sink` and a terminal grid, so the shell runs inside a desktop
+  window (key `T` or the dock button). A window stack of up to four windows;
+  Tab cycles them, Esc closes the top one. PS/2 mouse on IRQ12 (PIC slave
+  unmasked, IRQ2 cascade unmasked).
+- Fixed before commit:
+  - Boot log said only IRQ0 and IRQ1 were unmasked. It now lists IRQ12, and the
+    mouse line is printed after the PIC line.
+  - `mouse_init` now drops a byte left in the 8042 buffer, so a key pressed
+    during boot is not read as the mouse's acknowledgement. The keyboard and
+    mouse handlers check status bit 5 so neither reads the other's byte.
+  - Dock buttons did nothing while a window was open. They now work at any time.
+- Build: `make`, `make fault-test`, `make pf-test`, and the text-only build all
+  compile with no warnings except the known RWX one.
+- Serial log: `PIC remapped ... IRQ12 (mouse) unmasked`, `mouse: PS/2 mouse on, IRQ12`,
+  all self-tests PASS.
+- Scripted run (QEMU monitor `sendkey`, `mouse_move`, `mouse_button`, `screendump`):
+  - `T`, then `help`, `ls`, `cat /readme.txt` in the Terminal: output matches
+    the text shell, prompt in cyan, long line wraps at 56 columns.
+    Screenshot: `docs/screenshots/desktop-terminal.png`.
+  - Click on the Archive tile opens Archive. Click a row selects it; a second
+    click opens the file.
+  - Click on the dock Terminal button with Archive open: Terminal opens on top.
+    Screenshot: `docs/screenshots/desktop-windows.png`.
+  - Click on the visible part of the lower window raises it. Click on `x`
+    closes the top window.
+  - `make run-text`: text shell still works.
+- Test note: QEMU's PS/2 queue holds 5 packets. A single `mouse_move` larger
+  than about 600 pixels leaves the rest pending, and it merges with the next
+  move. Scripts should use smaller moves.
+
 ---
 
 ## Open items (not yet verified)
@@ -195,7 +228,8 @@ README.md (build and run).
 - Long-run stability (hours of uptime). Tick counter wraps after about 497 days.
 - Memory map fallback path (no bootloader map).
 - Backspace across a wrapped line: known bug, see Entry 10.
-- Desktop: mouse, dragging, several panels at once, and a Terminal panel are not built.
+- Desktop: windows cannot be dragged. Mouse tested only with QEMU's emulated PS/2 mouse.
+- Backspace across a wrap in the Terminal window: same bug as Entry 10.
 - Framebuffer: only tested on QEMU `-vga std`. Real hardware is not supported.
 - Paging: only the identity map and 4 KiB map/unmap are tested. No page-fault
   recovery (the handler reports and halts).

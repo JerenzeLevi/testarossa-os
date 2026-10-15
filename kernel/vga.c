@@ -20,6 +20,10 @@ void vga_set_color(uint8_t fg) {
     fg_color = fg & 0x0F;
 }
 
+uint8_t vga_get_color(void) {
+    return fg_color;
+}
+
 /* Move the blinking hardware cursor to the current row and column.
  * Without this the cursor stays where the BIOS left it. */
 static void vga_sync_cursor(void) {

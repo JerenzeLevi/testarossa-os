@@ -6,10 +6,36 @@ Testarossa now boots into a graphical desktop. The text shell still exists
 Your job is to check what is built, break it on purpose, and report what
 you find. You do not need to read the code to do most of this.
 
+WHAT IS NEW (read this first if you tested before)
+--------------------------------------------------
+  - Terminal window: press  t  (or click "Terminal (T)") to run the shell
+    inside the desktop.
+  - Several windows: up to four at once. Tab brings the bottom one to the
+    top, Esc closes the top one.
+  - Mouse: click tiles, rail squares, Archive rows, the x close box, and the
+    dock buttons.
+  - The boot log has a new line: "mouse: PS/2 mouse on, IRQ12".
+  If you already did Parts A-F, pull the latest code (git pull), rebuild
+  (make clean && make), redo Test 2 and Test 3, then do PART B2.
+
+FOLLOW-UP: WHAT WE NEED FROM YOU
+--------------------------------
+  1. Run PART B2 (Tests 25-29) and report PASS or FAIL for each.
+  2. D1 now also applies to the Terminal window. Try it there and report.
+  3. D7 long run: leave the desktop running 10 minutes WITH the Terminal
+     and two other windows open, moving the mouse now and then.
+  4. Mouse edge cases: move the pointer fast into every corner, click and
+     hold, click with the right button. Report anything odd (pointer
+     jumping, stuck buttons, clicks that open the wrong thing).
+  5. Want to write code? The next open feature is dragging windows by their
+     title bar (docs/FUNCTIONS.md, section 8). Ask the project owner first,
+     and use a branch named feature/<short-name>.
+
 Work in this order:
 
   PART A  Must do first (about 20 min)   Tests 1-3
   PART B  Desktop checks (about 30 min)  Tests 4-11
+  PART B2 Terminal, windows, mouse (about 20 min) Tests 25-29
   PART C  Text shell checks (about 20 min) Tests 12-19
   PART D  Kernel self-tests in the log   Tests 20-22
   PART E  Crash tests (about 10 min)     Tests 23-24
@@ -62,7 +88,8 @@ A QEMU window opens. The terminal prints these lines, in this order:
     Testarossa OS v0.1.0 booting...
     GDT loaded
     IDT loaded
-    PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked
+    PIC remapped to vectors 32-47; IRQ0 (timer), IRQ1 (keyboard), IRQ12 (mouse) unmasked
+    mouse: PS/2 mouse on, IRQ12
     PIT programmed to 100 Hz
     PMM: memory map read, NNNNNN KiB free
     PMM self-test: PASS (...)
@@ -91,7 +118,9 @@ EXPECTED:
   - Four hub cards in a 2x2 grid: Archive, Messages, Journal, System.
     The Archive card has a bright cyan outline (it has focus).
   - Three status cards on the right: UPTIME, MEMORY, HEAP. The numbers change.
-  - A bottom bar: "Tab move   arrows move   Enter open   Esc close".
+  - A bottom bar: "Tab / arrows move   Enter open   Esc close", and two
+    buttons on the right: "About (A)" and "Terminal (T)".
+  - A small white arrow pointer in the middle of the screen.
 
 
 =====================================================================
@@ -177,6 +206,55 @@ EXPECTED: a panel "About Testarossa" opens. It shows the name and version,
 a one-line description, then five lines: CPU, Kernel, Memory, Display,
 and Paging. A final grey line says everything on screen is drawn by the
 kernel. Press Esc to close.
+
+
+=====================================================================
+PART B2 - TERMINAL, WINDOWS, MOUSE
+=====================================================================
+
+Use the normal build (make run). QEMU takes the mouse when you click its
+window. Press Ctrl+Alt+G to get your mouse back.
+
+TEST 25 - TERMINAL WINDOW
+-------------------------
+On the desktop press  t.
+EXPECTED: a "Terminal" window with "Shell ready. Type help." and a cyan
+"testarossa>" prompt, with an underline cursor after it.
+Type  help  Enter, then  ls  Enter, then  cat /readme.txt  Enter.
+EXPECTED: the same output as in Tests 14 and 16. The line "Nothing here is
+written to disk, so it resets on every boot." wraps onto a second line.
+Type  clear  Enter. EXPECTED: the window empties, prompt at the top.
+Type  a  and  t. EXPECTED: they appear as letters in the Terminal; no window opens.
+
+TEST 26 - SEVERAL WINDOWS
+-------------------------
+With the Terminal open, press Esc. Then press Enter on Archive, then  a.
+EXPECTED: two windows, Archive below and About on top, About a little lower
+and to the right. Only the top window has a cyan border.
+Press Tab. EXPECTED: Archive comes to the top. Press Tab again: About again.
+Press  t. EXPECTED: Terminal opens on top of both (three windows).
+Press Esc three times. EXPECTED: the windows close one at a time, top first.
+
+TEST 27 - THE TERMINAL KEEPS ITS TEXT
+-------------------------------------
+Open the Terminal, type  echo still here  Enter, press Esc, then  t  again.
+EXPECTED: "still here" is still in the window. The shell does not restart.
+
+TEST 28 - MOUSE ON THE DESKTOP
+------------------------------
+Move the mouse. EXPECTED: the pointer follows and stops at the screen edges.
+Click the System tile. EXPECTED: System Monitor opens.
+Click the pink x on its title bar. EXPECTED: it closes.
+Click the rail square JO. EXPECTED: Journal opens. Close it.
+Click "Terminal (T)" in the dock. EXPECTED: the Terminal opens.
+
+TEST 29 - MOUSE WITH WINDOWS
+----------------------------
+Open Archive (click the tile). Click /system/about.txt once.
+EXPECTED: that row is selected. Click it again. EXPECTED: the file opens.
+Click "About (A)" in the dock. EXPECTED: About opens on top of Archive.
+Click a visible part of the Archive window. EXPECTED: Archive comes to the top.
+Click the empty desktop. EXPECTED: nothing happens.
 
 
 =====================================================================
@@ -313,6 +391,7 @@ D1 - BACKSPACE ACROSS A WRAP  (known bug, text shell: make run-text)
     50 times, then type  z.
     EXPECTED: 50 letters remain, then  z.
     Note what actually appears and where the z lands.
+    Try the same in the desktop Terminal window (it wraps at 56 columns).
 
 D2 - LONG LINES IN A DESKTOP PANEL  (suspected: clipping)
     The panels do not wrap text. Read a file in the Archive, or find a long

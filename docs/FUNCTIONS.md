@@ -63,7 +63,7 @@ Constants: `GDT_KERNEL_CODE = 0x08`, `GDT_KERNEL_DATA = 0x10`.
 ### `kernel/pic.c` / `kernel/pic.h`
 | Function | Status | Purpose |
 |---|---|---|
-| `void pic_init(void)` | DONE | Remaps master PIC to vectors 32-39 and slave to 40-47. Unmasks IRQ0 (timer) and IRQ1 (keyboard). Masks all others. |
+| `void pic_init(void)` | DONE | Remaps master PIC to vectors 32-39 and slave to 40-47. Unmasks IRQ0 (timer), IRQ1 (keyboard), IRQ2 (cascade to the slave), and IRQ12 (mouse). Masks all others. |
 | `void pic_send_eoi(uint8_t irq)` | DONE | Sends end-of-interrupt. Also to the slave PIC for IRQ 8-15. |
 
 ### `kernel/timer.c` / `kernel/timer.h`
@@ -158,7 +158,8 @@ Palette (constants in `vga.h`, from DESIGN.md section 3.1): `VGA_COLOR_DIM` (8),
 ### `kernel/log.c` / `kernel/log.h`
 | Function | Status | Purpose |
 |---|---|---|
-| `void log_putc(char c)` | DONE | Writes to serial and VGA. `\b` erases on both. |
+| `void log_putc(char c)` | DONE | Writes to serial, VGA, and the extra sink if one is set. `\b` erases on each. `\f` clears each screen. |
+| `void log_set_sink(log_sink_fn sink)` | DONE | Sets one extra output for every character, or removes it with NULL. The desktop sets `terminal_sink`. |
 | `void log_puts(const char *s)` | DONE | String version of `log_putc`. |
 | `void log_dec(uint32_t v)` | DONE | Prints an unsigned decimal number. |
 | `void log_hex(uint32_t v)` | DONE | Prints `0x` plus 8 hex digits. |
@@ -207,19 +208,48 @@ All calls clip to the screen.
 ### `kernel/keyboard.c` / `kernel/keyboard.h`
 | Function | Status | Purpose |
 |---|---|---|
-| `void keyboard_irq_handler(void)` | DONE | IRQ1 handler. Reads port `0x60`. Tracks Shift. Handles the `0xE0` prefix for arrow keys. Translates scancode set 1 to ASCII. Pushes into the 64-byte queue. Ignores key releases. |
+| `void keyboard_irq_handler(void)` | DONE | IRQ1 handler. Skips a byte that the 8042 marks as from the mouse. Reads port `0x60`. Tracks Shift. Handles the `0xE0` prefix for arrow keys. Translates scancode set 1 to ASCII. Pushes into the 64-byte queue. Ignores key releases. |
 | `int keyboard_getc(void)` | DONE | Pops one key, or returns `-1` if the queue is empty. |
 | `static void queue_push(char c)` | DONE | Ring buffer write. Drops the key if full. |
 
 Key codes: ASCII for letters, `\n` Enter, `\t` Tab, `\b` Backspace, `27` Esc.
 Arrows: `KEY_UP` 0x80, `KEY_DOWN` 0x81, `KEY_LEFT` 0x82, `KEY_RIGHT` 0x83.
 
+### `kernel/mouse.c` / `kernel/mouse.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `int mouse_init(void)` | DONE | Drops any waiting byte, enables the 8042 aux port, turns on the aux IRQ and clock in the config byte, then sends Set Defaults and Enable to the mouse. Returns 0 if both are acknowledged, -1 otherwise. |
+| `void mouse_irq_handler(void)` | DONE | IRQ12 handler. Reads one byte, finds the packet start by bit 3, and on the third byte applies the signed X/Y move, clamped to the screen. Drops packets with an overflow bit. |
+| `void mouse_state(int *x, int *y, uint8_t *buttons)` | DONE | Pointer position and buttons. `x = y = -1` if no mouse was found. |
+| `static int mouse_write(uint8_t byte)` | DONE | Sends one byte to the mouse (command `0xD4`) and waits for `0xFA`. |
+| `static int wait_input(void)`, `wait_output(void)` | DONE | Poll the 8042 status with a time limit. |
+
+### `kernel/palette.c` / `kernel/palette.h`
+| Item | Status | Purpose |
+|---|---|---|
+| `C_MIDNIGHT` ... `C_STAR_B` | DONE | The graphics palette from DESIGN.md section 3, shared by the desktop and the terminal. |
+| `uint32_t palette_from_vga(uint8_t vga_color)` | DONE | Maps a text-mode colour index to the graphics colour with the same role. |
+
+### `kernel/terminal.c` / `kernel/terminal.h`
+| Function | Status | Purpose |
+|---|---|---|
+| `void terminal_clear(void)` | DONE | Blanks the 56 x 18 grid and homes the cursor. |
+| `void terminal_sink(char c)` | DONE | Log sink. Stores one character with the current text colour. Handles `\n`, `\b`, `\f`, wraps at column 56, scrolls at row 18. |
+| `void terminal_draw(int x, int y)` | DONE | Draws the grid and an underline cursor. |
+
 ### `kernel/desktop.c` / `kernel/desktop.h`
 | Function | Status | Purpose |
 |---|---|---|
-| `void desktop_run(void)` | DONE | Main loop, never returns. Reads keys. Redraws on each key and once per second (the uptime changes). Sleeps with `sti; hlt` between frames. |
-| `static void render(void)` | DONE | Draws background, top bar, rail, hub, cards, dock, and the open window, then `fb_present`. |
-| `static void handle_key(int c)` | DONE | Arrows and Tab move focus. Enter opens the focused tile, or a file in the archive list. A opens About. Esc goes back, or closes the panel. |
+| `void desktop_run(void)` | DONE | Main loop, never returns. Sets the terminal as the log sink. Reads keys and the mouse. Redraws on each key, each mouse change, and once per second (the uptime changes). Sleeps with `sti; hlt` between frames. |
+| `static void render(int mx, int my)` | DONE | Draws background, top bar, rail, hub, cards, dock, every open window bottom to top, and the pointer, then `fb_present`. |
+| `static void handle_key(int c)` | DONE | No window: arrows and Tab move focus, Enter opens the focused tile. With windows: Tab cycles them, Esc goes back or closes the top one, keys go to the top window (Terminal or Archive list). A and T open About and Terminal, except when the Terminal is on top. |
+| `static void handle_click(int mx, int my)` | DONE | Dock buttons first. Then windows top to bottom: a lower window is raised; on the top window, the close box or an Archive row. With no window, a hub tile or rail square opens. |
+| `static void open_window(enum window w)` | DONE | Raises the window if open, else pushes it (dropping the bottom one when four are open). Starts the shell the first time the Terminal opens. |
+| `static void close_top(void)`, `raise_at(int i)`, `cycle_windows(void)` | DONE | Window stack operations. |
+| `static enum window top_window(void)`, `find_window(enum window w)` | DONE | Window stack lookups. |
+| `static void win_origin(int idx, ...)`, `body_origin`, `tile_rect`, `hub_origin` | DONE | Geometry shared by drawing and click tests. |
+| `static void draw_cursor(int mx, int my)` | DONE | 11 x 16 arrow outline. Not drawn without a mouse. |
+| `static void draw_button(...)` | DONE | A dock button. |
 | `static void move_focus(int dx, int dy)` | DONE | Moves focus in the 2x2 hub grid, stopping at the edges. |
 | `static void open_tile(enum tile t)` | DONE | Opens the panel for a hub tile. |
 | `static void draw_background(void)` | DONE | Midnight fill and 90 fixed stars. |
@@ -228,30 +258,33 @@ Arrows: `KEY_UP` 0x80, `KEY_DOWN` 0x81, `KEY_LEFT` 0x82, `KEY_RIGHT` 0x83.
 | `static void draw_hub(void)` | DONE | Four tiles with pixel icons, shadows, and cyan focus outline. |
 | `static void draw_tile(...)` | DONE | One tile. |
 | `static void draw_cards(void)` | DONE | UPTIME, MEMORY (free frames), HEAP (free bytes). Real values. |
-| `static void draw_dock(void)` | DONE | Key hints. |
-| `static void draw_window(void)` | DONE | One panel at a time: shadow, title bar, close mark, border, body. |
-| `static void draw_window_body(int bx, int by)` | DONE | About, System Monitor, Archive (list and file), Journal, Messages. |
+| `static void draw_dock(void)` | DONE | Key hints, About and Terminal buttons. |
+| `static void draw_window(int idx)` | DONE | The window at stack index `idx`: shadow, title bar, close mark, border, body. The top one has a cyan border. |
+| `static void draw_window_body(enum window w, int bx, int by)` | DONE | About, System Monitor, Archive (list and file), Journal, Messages, Terminal. |
 | `static void draw_lines(...)` | DONE | Multi-line text inside a panel. Does not wrap long lines (to-test D2). |
 | `static void draw_kv(...)` | DONE | "label value unit" on one line. |
 | `static int put_dec(char *out, uint32_t v)`, `put_2d` | DONE | Number formatting without printf. |
 
-Not built in the desktop: mouse, dragging, several windows at once, a Terminal
-panel that uses the shell, a Messages feature, icons beyond four simple shapes.
+Not built in the desktop: dragging windows, a Messages feature, icons beyond
+four simple shapes.
 
 ## 6. Shell (text mode)
 
 ### `kernel/shell.c` / `kernel/shell.h`
-Used when the framebuffer is not available, and in `make run-text`.
+Used when the framebuffer is not available, in `make run-text`, and in the
+desktop's Terminal window.
 
 | Function | Status | Purpose |
 |---|---|---|
-| `void shell_run(void)` | DONE | Main loop. Reads keys, edits the line, runs commands on Enter. Never returns. |
+| `void shell_run(void)` | DONE | Text-mode main loop. Calls `shell_start`, then feeds each key to `shell_key`. Never returns. |
+| `void shell_start(void)` | DONE | Prints "Shell ready. Type help." and the first prompt. |
+| `void shell_key(int c)` | DONE | Edits the line (printable keys, Backspace) and runs the command on Enter. Other keys are ignored. |
 | `static void prompt(void)` | DONE | Prints `testarossa> ` with the prompt word in the focus colour. |
 | `static void execute(char *cmd)` | DONE | Trims spaces, then dispatches on the command word. |
 | `static void cmd_help(void)` | DONE | Lists commands. |
 | `static void cmd_about(void)` | DONE | Name, version, architecture, I/O and memory facts. |
 | `static void cmd_version(void)` | DONE | Name and version. |
-| `static void cmd_clear(void)` | DONE | Clears VGA and sends an ANSI clear to serial. |
+| `static void cmd_clear(void)` | DONE | Prints `\f`, which clears VGA, serial (ANSI clear), and the Terminal window. |
 | `static void cmd_echo(const char *arg)` | DONE | Prints the text after `echo`. |
 | `static void cmd_uptime(void)` | DONE | Prints seconds and ticks from `timer_ticks()`. |
 | `static void cmd_mem(void)` | DONE | Usable, free, and in-use KiB from the frame allocator, plus heap free. |
@@ -269,7 +302,7 @@ Commands: `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `c
 ### `kernel/kernel.c`
 | Function | Status | Purpose |
 |---|---|---|
-| `void kernel_main(uint32_t mb_magic, uint32_t mb_info)` | DONE | Order: VGA and serial, banner, Multiboot check, GDT, IDT, PIC, timer, PMM and self-test, paging and self-test, heap and self-test, framebuffer. If the framebuffer works, the desktop runs. Otherwise the text shell runs. |
+| `void kernel_main(uint32_t mb_magic, uint32_t mb_info)` | DONE | Order: VGA and serial, banner, Multiboot check, GDT, IDT, PIC, mouse, timer, PMM and self-test, paging and self-test, heap and self-test, framebuffer. If the framebuffer works, the desktop runs. Otherwise the text shell runs. |
 | `static void trigger_divide_error(void)` | TEST ONLY | `-DTESTAROSSA_FAULT_TEST` (`make fault-test`). Runs right after the timer starts. |
 | Page-fault test read | TEST ONLY | `-DTESTAROSSA_PAGE_FAULT_TEST` (`make pf-test`). Reads `0x80000000` after paging is on. |
 | Text-only build | - | `-DTESTAROSSA_NO_GRAPHICS` (`make run-text`) skips the framebuffer. |
@@ -278,22 +311,13 @@ Commands: `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `c
 
 These are the interfaces still to build. Nothing below is in the code yet.
 
-### Window manager (more than one panel at once)
-| Function | Purpose |
-|---|---|
-| `int window_open(const char *title, int kind)` | Open a panel, return an id or -1 when full. |
-| `void window_close(int id)` | Close a panel. |
-| `void window_focus(int id)` | Make a panel the active one and raise it. |
+The window stack, the Terminal window, and the mouse were planned here and are
+now built (sections 5 and 3).
 
-### Terminal panel
+### Window dragging
 | Function | Purpose |
 |---|---|
-| `void term_put(char c)` | Send shell output to a text area inside a window. Needs the log output to be pluggable first. |
-
-### Mouse
-| Function | Purpose |
-|---|---|
-| `void mouse_irq_handler(void)` | Read the PS/2 mouse packets (IRQ12). Optional, last. |
+| `static void drag_window(int idx, int dx, int dy)` | Move a window by the mouse while the button is held on its title bar. Needs a stored position per window instead of one set by stack index. |
 
 ### Scheduler and user mode
 Not planned for this exam (see the master plan, P3).

@@ -3,14 +3,27 @@
 #include "serial.h"
 #include "vga.h"
 
+static log_sink_fn extra_sink;
+
+void log_set_sink(log_sink_fn sink) {
+    extra_sink = sink;
+}
+
 void log_putc(char c) {
-    if (c == '\n')
-        serial_puts("\n");
-    else if (c == '\b')
-        serial_puts("\b \b");
-    else
-        serial_putc(c);
-    vga_putc(c);
+    if (c == '\f') {
+        serial_puts("\x1b[2J\x1b[H");     /* ANSI clear + home for a serial terminal */
+        vga_clear();
+    } else {
+        if (c == '\n')
+            serial_puts("\n");
+        else if (c == '\b')
+            serial_puts("\b \b");
+        else
+            serial_putc(c);
+        vga_putc(c);
+    }
+    if (extra_sink)
+        extra_sink(c);
 }
 
 void log_puts(const char *s) {

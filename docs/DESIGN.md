@@ -121,12 +121,15 @@ Any further change goes through the design process in section 8.
   outline when focused.
 - Status cards, 180 px wide on the right: UPTIME, MEMORY (free frames), HEAP
   (free bytes). Real values, redrawn every second.
-- Dock, 36 px at the bottom: key hints.
-- Panels: one at a time. About (key A), System Monitor, Archive (list and
-  file view), Journal, Messages (says it is not built).
-- No mouse. Esc closes a panel. Tab and arrows move focus.
-- The text shell is not shown inside the desktop yet. It runs only without
-  graphics (`make run-text`).
+- Dock, 36 px at the bottom: key hints, and About (A) and Terminal (T) buttons.
+- Windows: up to four at once, each 28 px lower and to the right of the one
+  beneath. The top one has the cyan border and takes the keys. About (key A),
+  System Monitor, Archive (list and file view), Journal, Messages (says it is
+  not built), Terminal (key T, the text shell in a 56 x 18 grid).
+- Keyboard: Esc closes the top window. Tab and arrows move focus on the hub;
+  with windows open, Tab brings the bottom window to the top.
+- Mouse (optional, PS/2): an 11 x 16 Lavender arrow. Clicking a tile or rail
+  square opens it, clicking a lower window raises it, `x` closes. No dragging.
 
 ### 5.1 Plan (original, for reference)
 

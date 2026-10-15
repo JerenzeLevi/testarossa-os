@@ -10,8 +10,9 @@ A text shell is available too.
 
 > **Status:** the kernel boots, handles interrupts, reads the keyboard,
 > counts timer ticks, manages physical memory, paging, and a heap, draws a
-> graphical desktop with four panels, and runs a text shell.
-> Mouse support, several panels at once, and a Terminal panel are not built.
+> graphical desktop with up to four windows at once (including a Terminal
+> that runs the shell), works with a PS/2 mouse, and runs a text shell.
+> Window dragging, a scheduler, and user mode are not built.
 > See [Status](#status) for the full list.
 
 > **For classmates:** start with [to-test.txt](to-test.txt). It lists what to
@@ -81,7 +82,7 @@ features. Every feature is either working and tested, or labelled
 | Interrupts | IDT with exception and IRQ stubs | Done |
 | Interrupts | Exception diagnostics (vector, error code, EIP) | Done, tested with a divide-by-zero |
 | Interrupts | Page-fault report (address, present, read/write, mode) | Done, tested |
-| Devices | 8259 PIC remap, only IRQ0 and IRQ1 unmasked | Done |
+| Devices | 8259 PIC remap, only IRQ0, IRQ1, IRQ2 (cascade), and IRQ12 unmasked | Done |
 | Devices | PIT timer at 100 Hz | Done |
 | Input | PS/2 keyboard via IRQ1: Shift, Backspace, arrow keys | Done |
 | Memory | Physical frame allocator (bitmap, 4 KiB, from the Multiboot map) | Done, self-tested at boot |
@@ -91,11 +92,13 @@ features. Every feature is either working and tested, or labelled
 | Graphics | Framebuffer, 800x600x32, via Bochs VBE on QEMU `-vga std` | Done |
 | Graphics | Drawing: pixels, rectangles, frames, lines, 8x16 text | Done |
 | Desktop | Top bar, rail, hub tiles, status cards, dock | Done |
-| Desktop | Panels: About, System Monitor, Archive (list and file), Journal, Messages (placeholder) | Done |
-| Desktop | Keyboard only: Tab, arrows, Enter, Esc, A | Done |
-| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat` | Done (text mode) |
-| Desktop | Terminal panel that uses the shell | Not built |
-| Desktop | Mouse, dragging, several panels at once | Not built (stretch) |
+| Desktop | Panels: About, System Monitor, Archive (list and file), Journal, Messages (placeholder), Terminal | Done |
+| Desktop | Keyboard: Tab, arrows, Enter, Esc, A, T | Done |
+| Desktop | Up to four windows at once, stacked; Tab cycles them, click raises | Done |
+| Desktop | Terminal window that runs the shell | Done |
+| Input | PS/2 mouse via IRQ12: pointer, click tiles, rows, close box, dock buttons | Done, tested with QEMU's PS/2 mouse |
+| Shell | `help`, `about`, `version`, `clear`, `echo`, `uptime`, `mem`, `ls`, `cat` | Done (text mode and Terminal window) |
+| Desktop | Dragging windows | Not built (stretch) |
 | Input | Backspace across a wrapped line | **Known bug**, left for classmates to debug (to-test.txt D1) |
 | Scheduler | Processes, context switch, user mode | Not planned for this exam |
 
@@ -155,7 +158,8 @@ A QEMU window opens with the desktop. Serial output appears in your terminal:
 Testarossa OS v0.1.0 booting...
 GDT loaded
 IDT loaded
-PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked
+PIC remapped to vectors 32-47; IRQ0 (timer), IRQ1 (keyboard), IRQ12 (mouse) unmasked
+mouse: PS/2 mouse on, IRQ12
 PIT programmed to 100 Hz
 PMM: memory map read, 127448 KiB free
 PMM self-test: PASS (256 frames allocated, unique, above the kernel, freed, double free ignored)
@@ -181,18 +185,43 @@ with `make clean && make`.
 
 ## Using the desktop
 
-Click the QEMU window first so it has keyboard focus.
+Click the QEMU window first so it has keyboard focus. QEMU then also captures
+the mouse; press Ctrl+Alt+G to release it.
 
 | Key | What it does |
 |---|---|
-| Tab | Move focus to the next hub tile (Archive, Messages, Journal, System, then Archive again). |
+| Tab | No window open: move focus to the next hub tile (Archive, Messages, Journal, System, then Archive again). Windows open: bring the bottom window to the top. |
 | Arrow keys | Move focus in the 2x2 hub grid. Stops at the edges. |
 | Enter | Open the focused tile. In the Archive list, opens the selected file. |
 | Up / Down | In the Archive list, choose a file. |
-| Esc | In a file, go back to the list. Otherwise close the panel. |
-| A | Open About (it has no tile). |
+| Esc | In a file, go back to the list. Otherwise close the top window. |
+| A | Open About (it has no tile). Not while the Terminal is on top, where it is typed. |
+| T | Open the Terminal. Not while the Terminal is on top, where it is typed. |
+
+| Mouse | What it does |
+|---|---|
+| Click a hub tile or rail square | Open it. |
+| Click a window under the top one | Bring it to the top. |
+| Click `x` on the top window | Close it. |
+| Click an Archive row | Select it. Click it again to open the file. |
+| Click About or Terminal in the dock | Open that window. Works with windows open. |
 
 The focused tile has a bright cyan outline. The rail square next to it lights too.
+
+### Windows
+
+Up to four windows can be open. Each one is drawn a little lower and to the
+right of the one beneath it. The top window has the cyan border and gets the
+keys. Opening a window that is already open brings it to the top. Opening a
+fifth window closes the bottom one.
+
+### Terminal
+
+The Terminal window runs the same shell as `make run-text`, with the same
+commands and colours. Shell output goes to serial, to the text screen, and to
+the window's 56 x 18 grid, which wraps long lines and scrolls. The shell starts
+the first time the Terminal opens and keeps its screen when you close and
+reopen it.
 
 ### The hub
 
@@ -204,7 +233,8 @@ The focused tile has a bright cyan outline. The rail square next to it lights to
 | System | System Monitor | Uptime, timer ticks, usable RAM, free frames, heap free and size. Refreshes each second. |
 
 The right side shows three cards, UPTIME, MEMORY, and HEAP. The top bar shows
-live uptime. The dock at the bottom shows the key hints.
+live uptime. The dock at the bottom shows the key hints and the About and
+Terminal buttons.
 
 ### Built-in archive
 
@@ -221,6 +251,10 @@ The archive lives in memory and resets on every boot. Nothing is written to disk
 | Home | Archive file | System Monitor | About |
 |---|---|---|---|
 | ![home](docs/screenshots/desktop-home.png) | ![file](docs/screenshots/desktop-archive-file.png) | ![monitor](docs/screenshots/desktop-system-monitor.png) | ![about](docs/screenshots/desktop-about.png) |
+
+| Terminal | Two windows |
+|---|---|
+| ![terminal](docs/screenshots/desktop-terminal.png) | ![windows](docs/screenshots/desktop-windows.png) |
 
 ---
 
@@ -303,7 +337,8 @@ GRUB or QEMU -kernel
        check magic == 0x2BADB002
        gdt_init        -> load GDT, reload segment registers
        idt_init        -> install 48 gates, load IDT
-       pic_init        -> remap IRQs to 32-47, unmask IRQ0 and IRQ1
+       pic_init        -> remap IRQs to 32-47, unmask IRQ0, IRQ1, IRQ2, IRQ12
+       mouse_init      -> turn on the 8042 aux port and mouse reporting
        timer_init      -> PIT at 100 Hz
        pmm_init        -> read the Multiboot memory map, reserve used ranges
        pmm_selftest    -> allocate, check, and free 256 frames
@@ -405,9 +440,19 @@ screen in one pass, so the screen does not flicker.
 
 ### Desktop
 
-`desktop_run` is the main loop. It reads a key when one is waiting. It redraws
-after each key and once per second, so the uptime and the monitor values stay
-current. When nothing has changed it sleeps with `sti; hlt`.
+`desktop_run` is the main loop. It reads a key when one is waiting and the
+mouse position and buttons. It redraws after each key, each mouse change, and
+once per second, so the uptime and the monitor values stay current. When
+nothing has changed it sleeps with `sti; hlt`.
+
+Open windows are kept in a small stack (`stack[0]` is the bottom). Drawing goes
+bottom to top; clicks are checked top to bottom. The mouse driver collects the
+3-byte PS/2 packets on IRQ12 and keeps a clamped pointer position. A click is
+the moment the left button goes from up to down.
+
+The Terminal window uses `log_set_sink`: every character the shell prints
+through `log_putc` is also stored in the terminal grid (`terminal.c`), with the
+current text colour mapped to the graphics palette (`palette.c`).
 
 Everything drawn is either a fixed layout, a fixed colour from the design
 document, or a value read from the kernel. The Messages and Journal panels say
@@ -427,6 +472,7 @@ Testarossa_OS_Master_Plan.txt   project plan (scope and weeks)
 README.md                       this file
 to-test.txt                     test guide for classmates
 VERIFY.md                       verification log, append only
+THIRD-PARTY-NOTICES.md          licence notice for the 8x16 font
 Makefile                        build, run, run-text, fault-test, pf-test, clean
 linker.ld                       places the kernel at 1 MiB, Multiboot first
 
@@ -439,7 +485,7 @@ kernel/
   io.h               port I/O: outb/inb, outw/inw, outl/inl, io_wait
   vga.c/.h           VGA text output, colours, scroll, hardware cursor
   serial.c/.h        COM1 serial output
-  log.c/.h           print to both VGA and serial (log_putc, log_puts, log_dec, log_hex)
+  log.c/.h           print to VGA, serial, and an optional sink (log_putc, log_puts, log_dec, log_hex)
   cpu.asm            lgdt/lidt loaders and the GDT segment reload
   gdt.c/.h           flat code and data descriptors
   interrupts.asm     48 interrupt stubs and the common register save/restore
@@ -447,6 +493,7 @@ kernel/
   pic.c/.h           8259 PIC remap, mask, EOI
   timer.c/.h         PIT at 100 Hz and tick counter
   keyboard.c/.h      IRQ1 handler, scancode table, arrow keys, key queue
+  mouse.c/.h         PS/2 mouse setup and IRQ12 packet handler
   pmm.c/.h           physical frame allocator and its boot-time self-test
   paging.c/.h        identity map, 4 KiB map/unmap, self-test
   heap.c/.h          kernel heap (first fit, merge) and its self-test
@@ -454,7 +501,9 @@ kernel/
   draw.c/.h          pixels, rectangles, frames, lines, text on the back buffer
   font.h             font interface
   font8x16.c         8x16 font data, generated by tools/make_font.py
-  desktop.c/.h       the desktop: scene, panels, keyboard handling
+  palette.c/.h       graphics colours, and text colour -> graphics colour
+  desktop.c/.h       the desktop: scene, window stack, keyboard and mouse handling
+  terminal.c/.h      text grid for the Terminal window (a log sink)
   ramfs.c/.h         built-in read-only archive (three files)
   shell.c/.h         text shell: line editor and commands
 
@@ -549,9 +598,13 @@ changed and how you tested it.
   disagree. Reproduced and documented in VERIFY.md (Entry 10). Left for
   classmates to find and fix (to-test.txt D1).
 - **Text shell**: no history, no cursor movement with arrow keys, no tab completion.
-  Input is capped at 127 characters. The shell is not shown inside the desktop yet.
-- **Desktop**: no mouse. One panel at a time. Panels do not wrap long lines
-  (to-test.txt D2). Messages is a placeholder. The About panel is reached only with A.
+  Input is capped at 127 characters. The Terminal window has the same Backspace
+  bug at its wrap point.
+- **Desktop**: windows cannot be dragged; their positions follow their place in
+  the stack. At most four windows. Panels other than the Terminal do not wrap
+  long lines (to-test.txt D2). Messages is a placeholder.
+- **Mouse**: PS/2 only, three-byte packets (no scroll wheel), tested only with
+  QEMU's emulated mouse. No pointer acceleration.
 - **Graphics**: only on QEMU with `-vga std` (Bochs VBE). No support for real
   graphics hardware. The mode is fixed at 800x600x32.
 - **Memory**: the allocator and paging have been tested in QEMU only. The
@@ -576,7 +629,7 @@ changed and how you tested it.
 | 1 | Boot, output, keyboard | Done |
 | 2 | Timer, frame allocator, paging, heap | Done |
 | 3 | Shell and framebuffer foundation | Done (shell, framebuffer, drawing, font) |
-| 4 | Desktop panels, RAM filesystem, stability, docs | Desktop and filesystem done. Terminal panel, mouse, and stability runs still to do. |
+| 4 | Desktop panels, RAM filesystem, stability, docs | Desktop, filesystem, Terminal window, several windows, and mouse done. Long stability runs still to do. |
 
 The full plan, including the design bible and the exam demo, is in
 [Testarossa_OS_Master_Plan.txt](Testarossa_OS_Master_Plan.txt).

@@ -5,6 +5,7 @@
 #include "pic.h"
 #include "keyboard.h"
 #include "timer.h"
+#include "mouse.h"
 #include "vga.h"
 
 struct idt_entry {
@@ -93,6 +94,8 @@ void isr_dispatch(regs_t *r) {
             timer_irq_handler();
         else if (irq == 1)
             keyboard_irq_handler();
+        else if (irq == 12)
+            mouse_irq_handler();
         pic_send_eoi(irq);
     }
 }

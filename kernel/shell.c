@@ -52,7 +52,7 @@ static void cmd_help(void) {
     log_puts("  uptime      time since boot, from the 100 Hz timer\n");
     log_puts("  mem         physical memory from the frame allocator\n");
     log_puts("  ls          list the built-in archive files\n");
-    log_puts("  cat <path>  print one archive file, e.g. cat /readme.txt\n");
+    log_puts("  cat <path>  print one archive file\n");
 }
 
 static void cmd_about(void) {
@@ -140,8 +140,7 @@ static void cmd_cat(const char *arg) {
 }
 
 static void cmd_clear(void) {
-    vga_clear();
-    serial_puts("\x1b[2J\x1b[H");   /* ANSI clear + home for a serial terminal */
+    log_putc('\f');                 /* clears VGA, serial, and the terminal window */
 }
 
 static void cmd_echo(const char *arg) {
@@ -202,13 +201,40 @@ static void execute(char *cmd) {
     }
 }
 
-void shell_run(void) {
+void shell_start(void) {
+    line_len = 0;
     log_puts("Shell ready. Type help.\n");
     prompt();
+}
+
+/* Handle one key. Used by the text loop and by the desktop's terminal window. */
+void shell_key(int c) {
+    if (c == '\n') {
+        log_putc('\n');
+        line[line_len] = '\0';
+        execute(line);
+        line_len = 0;
+        prompt();
+    } else if (c == '\b') {
+        if (line_len > 0) {
+            line_len--;
+            log_putc('\b');
+        }
+    } else if (c >= 32 && c < 127) {
+        if (line_len < LINE_MAX) {
+            line[line_len++] = (char)c;
+            log_putc((char)c);
+        }
+    }
+    /* Other keys (Tab, arrows, control codes) are ignored. */
+}
+
+void shell_run(void) {
+    shell_start();
 
     for (;;) {
-        /* Same pattern as before: check the queue with interrupts off, then
-         * "sti; hlt" so a key pressed in between cannot be missed. */
+        /* Check the queue with interrupts off, then "sti; hlt" so a key
+         * pressed in between cannot be missed. */
         __asm__ volatile("cli");
         int c = keyboard_getc();
         if (c < 0) {
@@ -216,24 +242,6 @@ void shell_run(void) {
             continue;
         }
         __asm__ volatile("sti");
-
-        if (c == '\n') {
-            log_putc('\n');
-            line[line_len] = '\0';
-            execute(line);
-            line_len = 0;
-            prompt();
-        } else if (c == '\b') {
-            if (line_len > 0) {
-                line_len--;
-                log_putc('\b');
-            }
-        } else if (c >= 32 && c < 127) {
-            if (line_len < LINE_MAX) {
-                line[line_len++] = (char)c;
-                log_putc((char)c);
-            }
-        }
-        /* Other keys (Tab, control codes) are ignored for now. */
+        shell_key(c);
     }
 }

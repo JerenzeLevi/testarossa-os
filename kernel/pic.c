@@ -24,9 +24,10 @@ void pic_init(void) {
     /* ICW4: 8086 mode. */
     outb(PIC1_DATA, 0x01); io_wait();
     outb(PIC2_DATA, 0x01); io_wait();
-    /* OCW1: unmask IRQ0 (timer) and IRQ1 (keyboard); mask the rest. */
-    outb(PIC1_DATA, 0xFC);
-    outb(PIC2_DATA, 0xFF);
+    /* OCW1: master unmasks IRQ0 (timer), IRQ1 (keyboard), IRQ2 (cascade to slave).
+     * Slave unmasks IRQ12 (PS/2 mouse, slave bit 4). Everything else stays masked. */
+    outb(PIC1_DATA, 0xF8);
+    outb(PIC2_DATA, 0xEF);
 }
 
 void pic_send_eoi(uint8_t irq) {

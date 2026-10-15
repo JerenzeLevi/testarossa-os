@@ -1,47 +1,62 @@
 #include <stdint.h>
 #include "desktop.h"
 #include "draw.h"
+#include "font.h"
 #include "framebuffer.h"
 #include "heap.h"
 #include "keyboard.h"
+#include "log.h"
+#include "mouse.h"
+#include "palette.h"
 #include "pmm.h"
 #include "ramfs.h"
+#include "shell.h"
+#include "terminal.h"
 #include "timer.h"
 #include "version.h"
 
-/* Palette from docs/DESIGN.md section 3. */
-#define C_MIDNIGHT  0x090A16u
-#define C_PANEL     0x12142Bu   /* a little lighter than midnight, for cards and windows */
-#define C_VIOLET    0x30205Eu   /* deep violet: shadows, title bars */
-#define C_AMETHYST  0x9B7BFFu   /* borders and glow */
-#define C_CYAN      0x36E4F5u   /* focus and selection */
-#define C_MAGENTA   0xFF66C4u   /* accents and close buttons */
-#define C_LAVENDER  0xE8DFF5u   /* main text */
-#define C_DIM       0x7D7AA0u   /* secondary text */
-#define C_STAR_A    0x3B3470u   /* faint background stars */
-#define C_STAR_B    0x5A4A9Cu
-
 /* Layout, in pixels, for the 800x600 mode. */
-#define TOPBAR_H   28
-#define DOCK_H     36
-#define RAIL_W     72
-#define CARD_W     180
-#define HUB_X      RAIL_W
-#define HUB_Y      TOPBAR_H
-#define HUB_W      (FB_WIDTH - RAIL_W - CARD_W)
-#define HUB_H      (FB_HEIGHT - TOPBAR_H - DOCK_H)
-#define TILE_W     236
-#define TILE_H     150
-#define TILE_GAP   20
+#define TOPBAR_H    28
+#define DOCK_H      36
+#define RAIL_W      72
+#define CARD_W      180
+#define HUB_X       RAIL_W
+#define HUB_Y       TOPBAR_H
+#define HUB_W       (FB_WIDTH - RAIL_W - CARD_W)
+#define HUB_H       (FB_HEIGHT - TOPBAR_H - DOCK_H)
+#define TILE_W      236
+#define TILE_H      150
+#define TILE_GAP    20
 #define TILE_SHADOW 6
+#define DOCK_Y      (FB_HEIGHT - DOCK_H)
+#define BTN_Y       (DOCK_Y + 6)
+#define BTN_H       24
+#define ABOUT_BTN_X 580
+#define ABOUT_BTN_W 88
+#define TERM_BTN_X  676
+#define TERM_BTN_W  112
+
+/* Windows. Each one is drawn at a position set by its place in the stack. */
+#define WIN_X     150
+#define WIN_Y     112
+#define WIN_W     500
+#define WIN_H     360
+#define WIN_BAR   26
+#define WIN_STEP  28
+#define MAX_WIN   4
+#define BODY_PAD  20
 
 enum tile { TILE_ARCHIVE, TILE_MESSAGES, TILE_JOURNAL, TILE_SYSTEM, TILE_COUNT };
-enum window { WIN_NONE, WIN_ABOUT, WIN_SYSTEM, WIN_ARCHIVE, WIN_JOURNAL, WIN_MESSAGES };
+enum window {
+    WIN_NONE, WIN_ABOUT, WIN_SYSTEM, WIN_ARCHIVE, WIN_JOURNAL, WIN_MESSAGES, WIN_TERMINAL
+};
 
 static enum tile focus = TILE_ARCHIVE;
-static enum window open_win = WIN_NONE;
+static enum window stack[MAX_WIN];      /* stack[nwin - 1] is the top, the active window */
+static int nwin;
 static int archive_sel;
-static int viewing;                    /* archive window: showing one file */
+static int viewing;                     /* archive window: showing one file */
+static int terminal_started;
 
 /* ---- number formatting (no printf in the kernel) ---- */
 
@@ -73,6 +88,107 @@ static void draw_kv(int x, int y, const char *label, uint32_t value, const char 
     int lx = x + draw_text_width(label);
     draw_text(lx, y, num, color);
     draw_text(lx + draw_text_width(num), y, unit, C_DIM);
+}
+
+/* ---- geometry shared by drawing and clicks ---- */
+
+static void hub_origin(int *gx, int *gy) {
+    *gx = HUB_X + (HUB_W - (2 * TILE_W + TILE_GAP)) / 2;
+    *gy = HUB_Y + (HUB_H - (2 * TILE_H + TILE_GAP)) / 2;
+}
+
+static void tile_rect(enum tile t, int *x, int *y) {
+    int gx, gy;
+    hub_origin(&gx, &gy);
+    *x = gx + ((int)t % 2) * (TILE_W + TILE_GAP);
+    *y = gy + ((int)t / 2) * (TILE_H + TILE_GAP);
+}
+
+static enum window tile_window(enum tile t) {
+    switch (t) {
+    case TILE_ARCHIVE:  return WIN_ARCHIVE;
+    case TILE_MESSAGES: return WIN_MESSAGES;
+    case TILE_JOURNAL:  return WIN_JOURNAL;
+    case TILE_SYSTEM:   return WIN_SYSTEM;
+    default:            return WIN_NONE;
+    }
+}
+
+/* Top-left corner of the window at stack index idx. */
+static void win_origin(int idx, int *x, int *y) {
+    *x = WIN_X + idx * WIN_STEP;
+    *y = WIN_Y + idx * WIN_STEP;
+}
+
+/* Where the body text of a window starts. */
+static void body_origin(int idx, int *bx, int *by) {
+    int x, y;
+    win_origin(idx, &x, &y);
+    *bx = x + BODY_PAD;
+    *by = y + WIN_BAR + BODY_PAD;
+}
+
+#define ARCHIVE_ROW_H 26
+
+static int inside(int px, int py, int x, int y, int w, int h) {
+    return px >= x && py >= y && px < x + w && py < y + h;
+}
+
+/* ---- window stack ---- */
+
+static enum window top_window(void) {
+    return nwin > 0 ? stack[nwin - 1] : WIN_NONE;
+}
+
+static int find_window(enum window w) {
+    for (int i = 0; i < nwin; i++) {
+        if (stack[i] == w)
+            return i;
+    }
+    return -1;
+}
+
+/* Move the window at index i to the top. */
+static void raise_at(int i) {
+    enum window w = stack[i];
+    for (int j = i; j < nwin - 1; j++)
+        stack[j] = stack[j + 1];
+    stack[nwin - 1] = w;
+}
+
+static void open_window(enum window w) {
+    if (w == WIN_TERMINAL && !terminal_started) {
+        terminal_started = 1;
+        shell_start();
+    }
+    int i = find_window(w);
+    if (i >= 0) {
+        raise_at(i);
+        return;
+    }
+    if (nwin == MAX_WIN) {
+        /* Full: the bottom window makes room. */
+        for (int j = 0; j < nwin - 1; j++)
+            stack[j] = stack[j + 1];
+        nwin--;
+    }
+    stack[nwin++] = w;
+    if (w == WIN_ARCHIVE)
+        viewing = 0;
+}
+
+static void close_top(void) {
+    if (nwin == 0)
+        return;
+    if (top_window() == WIN_ARCHIVE)
+        viewing = 0;
+    nwin--;
+}
+
+/* Tab: bring the bottom window to the top, so each press shows the next one. */
+static void cycle_windows(void) {
+    if (nwin > 1)
+        raise_at(0);
 }
 
 /* ---- scene pieces ---- */
@@ -109,11 +225,18 @@ static void draw_topbar(void) {
     draw_text((int)FB_WIDTH - draw_text_width(clock) - 12, 6, clock, C_LAVENDER);
 }
 
+static void draw_button(int x, int y, int w, const char *label, uint32_t fill, uint32_t text) {
+    draw_rect(x, y, w, BTN_H, fill);
+    draw_frame(x, y, w, BTN_H, 1, C_AMETHYST);
+    draw_text(x + (w - draw_text_width(label)) / 2, y + 4, label, text);
+}
+
 static void draw_dock(void) {
-    int y = FB_HEIGHT - DOCK_H;
-    draw_rect(0, y, FB_WIDTH, DOCK_H, C_PANEL);
-    draw_rect(0, y, FB_WIDTH, 1, C_AMETHYST);
-    draw_text(12, y + 10, "Tab move   arrows move   Enter open   Esc close   A about", C_DIM);
+    draw_rect(0, DOCK_Y, FB_WIDTH, DOCK_H, C_PANEL);
+    draw_rect(0, DOCK_Y, FB_WIDTH, 1, C_AMETHYST);
+    draw_text(12, DOCK_Y + 10, "Tab / arrows move   Enter open   Esc close", C_DIM);
+    draw_button(ABOUT_BTN_X, BTN_Y, ABOUT_BTN_W, "About (A)", C_VIOLET, C_LAVENDER);
+    draw_button(TERM_BTN_X, BTN_Y, TERM_BTN_W, "Terminal (T)", C_VIOLET, C_LAVENDER);
 }
 
 static const char *rail_labels[4] = { "AR", "ME", "JO", "SY" };
@@ -130,7 +253,9 @@ static void draw_rail(void) {
     }
 }
 
-static void draw_tile(enum tile t, int x, int y, const char *title, const char *sub1, const char *sub2) {
+static void draw_tile(enum tile t, const char *title, const char *sub1, const char *sub2) {
+    int x, y;
+    tile_rect(t, &x, &y);
     int focused = (focus == t);
     /* Violet drop shadow, then the card. */
     draw_rect(x + TILE_SHADOW, y + TILE_SHADOW, TILE_W, TILE_H, C_VIOLET);
@@ -167,9 +292,6 @@ static void draw_tile(enum tile t, int x, int y, const char *title, const char *
 }
 
 static void draw_hub(void) {
-    int gx = HUB_X + (HUB_W - (2 * TILE_W + TILE_GAP)) / 2;
-    int gy = HUB_Y + (HUB_H - (2 * TILE_H + TILE_GAP)) / 2;
-
     char count[12];
     put_dec(count, (uint32_t)ramfs_count());
     char archive_sub[32] = "";
@@ -179,10 +301,10 @@ static void draw_hub(void) {
     for (int i = 0; tail[i]; i++) archive_sub[n++] = tail[i];
     archive_sub[n] = '\0';
 
-    draw_tile(TILE_ARCHIVE,  gx,                  gy,                  "Archive",  archive_sub, "read-only, from memory");
-    draw_tile(TILE_MESSAGES, gx + TILE_W + TILE_GAP, gy,               "Messages", "none yet",  "messaging is not built");
-    draw_tile(TILE_JOURNAL,  gx,                  gy + TILE_H + TILE_GAP, "Journal", "entry 01, built-in demo", "archive copy");
-    draw_tile(TILE_SYSTEM,   gx + TILE_W + TILE_GAP, gy + TILE_H + TILE_GAP, "System", "uptime, memory, heap", "live values");
+    draw_tile(TILE_ARCHIVE,  "Archive",  archive_sub, "read-only, from memory");
+    draw_tile(TILE_MESSAGES, "Messages", "none yet",  "messaging is not built");
+    draw_tile(TILE_JOURNAL,  "Journal",  "entry 01, built-in demo", "archive copy");
+    draw_tile(TILE_SYSTEM,   "System",   "uptime, memory, heap",    "live values");
 }
 
 static void draw_cards(void) {
@@ -206,13 +328,7 @@ static void draw_cards(void) {
     draw_kv(x + 10, y + 254, "", heap_free_bytes() / 1024, " KiB free", C_LAVENDER);
 }
 
-/* ---- windows ---- */
-
-#define WIN_X  150
-#define WIN_Y  112
-#define WIN_W  500
-#define WIN_H  360
-#define WIN_BAR 26
+/* ---- window contents ---- */
 
 static const char *window_title(enum window w) {
     switch (w) {
@@ -221,6 +337,7 @@ static const char *window_title(enum window w) {
     case WIN_ARCHIVE:  return viewing ? "Archive - file" : "Archive";
     case WIN_JOURNAL:  return "Journal";
     case WIN_MESSAGES: return "Messages";
+    case WIN_TERMINAL: return "Terminal";
     default:           return "";
     }
 }
@@ -244,18 +361,18 @@ static void draw_lines(int x, int y, const char *s, uint32_t color, int max_line
 static void draw_archive_list(int x, int y) {
     int n = ramfs_count();
     for (int i = 0; i < n; i++) {
-        int row_y = y + i * 26;
+        int row_y = y + i * ARCHIVE_ROW_H;
         if (i == archive_sel) {
             draw_rect(x - 6, row_y - 3, WIN_W - 48, 22, C_VIOLET);
             draw_rect(x - 6, row_y - 3, 3, 22, C_CYAN);
         }
         draw_text(x, row_y, ramfs_name(i), i == archive_sel ? C_CYAN : C_LAVENDER);
     }
-    draw_text(x, y + n * 26 + 14, "Up/Down choose   Enter open", C_DIM);
+    draw_text(x, y + n * ARCHIVE_ROW_H + 14, "Up/Down choose   Enter open   click a row twice", C_DIM);
 }
 
-static void draw_window_body(int bx, int by) {
-    switch (open_win) {
+static void draw_window_body(enum window w, int bx, int by) {
+    switch (w) {
     case WIN_ABOUT:
         draw_text(bx, by, TESTAROSSA_NAME " " TESTAROSSA_VERSION, C_MAGENTA);
         draw_text(bx, by + 28, "A from-scratch 32-bit x86 educational OS.", C_LAVENDER);
@@ -298,46 +415,80 @@ static void draw_window_body(int bx, int by) {
         draw_text(bx, by + 28, "Messaging is not built yet.", C_DIM);
         break;
 
+    case WIN_TERMINAL:
+        terminal_draw(bx, by - 6);
+        break;
+
     default:
         break;
     }
 }
 
-static void draw_window(void) {
-    if (open_win == WIN_NONE)
-        return;
-    /* Shadow, body, title bar, border. */
-    draw_rect(WIN_X + 8, WIN_Y + 8, WIN_W, WIN_H, C_VIOLET);
-    draw_rect(WIN_X, WIN_Y, WIN_W, WIN_H, C_PANEL);
-    draw_rect(WIN_X, WIN_Y, WIN_W, WIN_BAR, C_VIOLET);
-    draw_frame(WIN_X, WIN_Y, WIN_W, WIN_H, 2, C_AMETHYST);
-    draw_text(WIN_X + 12, WIN_Y + 5, window_title(open_win), C_LAVENDER);
-    draw_text(WIN_X + WIN_W - 20, WIN_Y + 5, "x", C_MAGENTA);
-    draw_window_body(WIN_X + 20, WIN_Y + WIN_BAR + 20);
+/* Draw the window at stack index idx. The top window has the cyan border. */
+static void draw_window(int idx) {
+    enum window w = stack[idx];
+    int top = (idx == nwin - 1);
+    int x, y, bx, by;
+    win_origin(idx, &x, &y);
+    body_origin(idx, &bx, &by);
+
+    draw_rect(x + 8, y + 8, WIN_W, WIN_H, C_VIOLET);
+    draw_rect(x, y, WIN_W, WIN_H, C_PANEL);
+    draw_rect(x, y, WIN_W, WIN_BAR, top ? C_VIOLET : C_PANEL);
+    draw_frame(x, y, WIN_W, WIN_H, 2, top ? C_CYAN : C_AMETHYST);
+    draw_text(x + 12, y + 5, window_title(w), top ? C_LAVENDER : C_DIM);
+    draw_text(x + WIN_W - 20, y + 5, "x", C_MAGENTA);
+    draw_window_body(w, bx, by);
 }
 
-static void render(void) {
+/* Pointer shape: X marks the outline pixels. 11 x 16. */
+static const char *cursor_rows[16] = {
+    "X          ",
+    "XX         ",
+    "X.X        ",
+    "X..X       ",
+    "X...X      ",
+    "X....X     ",
+    "X.....X    ",
+    "X......X   ",
+    "X.......X  ",
+    "X........X ",
+    "X.....XXXXX",
+    "X..X..X    ",
+    "X.X X..X   ",
+    "XX  X..X   ",
+    "X    X..X  ",
+    "     X..X  ",
+};
+
+static void draw_cursor(int mx, int my) {
+    if (mx < 0)
+        return;
+    for (int r = 0; r < 16; r++) {
+        for (int c = 0; c < 11; c++) {
+            if (cursor_rows[r][c] == 'X')
+                draw_pixel(mx + c, my + r, C_LAVENDER);
+        }
+    }
+}
+
+static void render(int mx, int my) {
     draw_background();
     draw_topbar();
     draw_rail();
     draw_hub();
     draw_cards();
     draw_dock();
-    draw_window();
+    for (int i = 0; i < nwin; i++)
+        draw_window(i);
+    draw_cursor(mx, my);
     fb_present();
 }
 
 /* ---- input ---- */
 
 static void open_tile(enum tile t) {
-    switch (t) {
-    case TILE_ARCHIVE:  open_win = WIN_ARCHIVE; break;
-    case TILE_MESSAGES: open_win = WIN_MESSAGES; break;
-    case TILE_JOURNAL:  open_win = WIN_JOURNAL; break;
-    case TILE_SYSTEM:   open_win = WIN_SYSTEM; break;
-    default:            break;
-    }
-    viewing = 0;
+    open_window(tile_window(t));
 }
 
 static void move_focus(int dx, int dy) {
@@ -354,22 +505,40 @@ static void move_focus(int dx, int dy) {
 }
 
 static void handle_key(int c) {
-    if (open_win != WIN_NONE) {
-        if (open_win == WIN_ARCHIVE && !viewing) {
+    if (nwin > 0) {
+        enum window t = top_window();
+        /* A and T open their panels from any window, except that the Terminal
+         * takes them as typed text. */
+        if ((c == 'a' || c == 'A') && t != WIN_TERMINAL) {
+            open_window(WIN_ABOUT);
+            return;
+        }
+        if ((c == 't' || c == 'T') && t != WIN_TERMINAL) {
+            open_window(WIN_TERMINAL);
+            return;
+        }
+        if (c == '\t') {
+            cycle_windows();
+            return;
+        }
+        if (c == 27) {                  /* Esc: back from a file, or close the top window */
+            if (t == WIN_ARCHIVE && viewing)
+                viewing = 0;
+            else
+                close_top();
+            return;
+        }
+        if (t == WIN_TERMINAL) {
+            shell_key(c);
+            return;
+        }
+        if (t == WIN_ARCHIVE && !viewing) {
             if (c == KEY_UP && archive_sel > 0)
                 archive_sel--;
             else if (c == KEY_DOWN && archive_sel < ramfs_count() - 1)
                 archive_sel++;
-            else if (c == '\n') {
+            else if (c == '\n')
                 viewing = 1;
-                return;
-            }
-        }
-        if (c == 27) {                      /* Esc: back from a file, or close the window */
-            if (viewing)
-                viewing = 0;
-            else
-                open_win = WIN_NONE;
         }
         return;
     }
@@ -381,20 +550,98 @@ static void handle_key(int c) {
     case KEY_DOWN:  move_focus(0, 1);  break;
     case '\t':      focus = (enum tile)(((int)focus + 1) % TILE_COUNT); break;
     case '\n':      open_tile(focus); break;
-    case 'a':                           /* About has no tile; A opens it directly */
-    case 'A':       open_win = WIN_ABOUT; viewing = 0; break;
+    case 'a':
+    case 'A':       open_window(WIN_ABOUT); break;
+    case 't':
+    case 'T':       open_window(WIN_TERMINAL); break;
     default:        break;
     }
 }
 
+/* Mouse click at (mx, my). Windows are checked top first, then the desktop. */
+static void handle_click(int mx, int my) {
+    if (mx < 0)
+        return;
+
+    /* No window reaches the dock, so its buttons work at any time. */
+    if (inside(mx, my, ABOUT_BTN_X, BTN_Y, ABOUT_BTN_W, BTN_H)) {
+        open_window(WIN_ABOUT);
+        return;
+    }
+    if (inside(mx, my, TERM_BTN_X, BTN_Y, TERM_BTN_W, BTN_H)) {
+        open_window(WIN_TERMINAL);
+        return;
+    }
+
+    if (nwin > 0) {
+        for (int i = nwin - 1; i >= 0; i--) {
+            int x, y;
+            win_origin(i, &x, &y);
+            if (!inside(mx, my, x, y, WIN_W, WIN_H))
+                continue;
+            if (i != nwin - 1) {        /* click on a lower window: bring it up */
+                raise_at(i);
+                return;
+            }
+            /* The top window: close box, then its contents. */
+            if (inside(mx, my, x + WIN_W - 28, y + 4, 24, WIN_BAR - 8)) {
+                close_top();
+                return;
+            }
+            if (top_window() == WIN_ARCHIVE && !viewing) {
+                int bx, by;
+                body_origin(i, &bx, &by);
+                for (int r = 0; r < ramfs_count(); r++) {
+                    if (inside(mx, my, bx - 6, by + r * ARCHIVE_ROW_H - 3, WIN_W - 48, 22)) {
+                        if (r == archive_sel)
+                            viewing = 1;   /* second click on the same row opens it */
+                        else
+                            archive_sel = r;
+                        break;
+                    }
+                }
+            }
+            return;
+        }
+        return;                         /* clicked the empty desktop with a window open */
+    }
+
+    for (enum tile t = TILE_ARCHIVE; t < TILE_COUNT; t++) {
+        int x, y;
+        tile_rect(t, &x, &y);
+        if (inside(mx, my, x, y, TILE_W, TILE_H)) {
+            focus = t;
+            open_tile(t);
+            return;
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        if (inside(mx, my, 12, TOPBAR_H + 24 + i * 72, 48, 48)) {
+            focus = (enum tile)i;
+            open_tile(focus);
+            return;
+        }
+    }
+}
+
 void desktop_run(void) {
+    log_set_sink(terminal_sink);        /* shell output also goes to the terminal window */
+    terminal_clear();
+
     uint32_t last_sec = (uint32_t)-1;
+    int last_x = -2, last_y = -2;
+    uint8_t last_b = 0xFF;
+
     for (;;) {
+        /* Read the queue and pointer with interrupts off. The check and "sti; hlt"
+         * together mean an event that arrives in between wakes the CPU. */
         __asm__ volatile("cli");
         int c = keyboard_getc();
         uint32_t sec = timer_ticks() / TIMER_HZ;
-        if (c < 0 && sec == last_sec) {
-            /* Nothing to do: sleep until the next interrupt. "sti; hlt" is atomic. */
+        int mx, my;
+        uint8_t b;
+        mouse_state(&mx, &my, &b);
+        if (c < 0 && sec == last_sec && mx == last_x && my == last_y && b == last_b) {
             __asm__ volatile("sti; hlt");
             continue;
         }
@@ -402,7 +649,15 @@ void desktop_run(void) {
 
         if (c >= 0)
             handle_key(c);
+        if ((b & MOUSE_BTN_LEFT) && !(last_b & MOUSE_BTN_LEFT))
+            handle_click(mx, my);
+
         last_sec = sec;
-        render();
+        last_x = mx;
+        last_y = my;
+        last_b = b;
+
+        mouse_state(&mx, &my, &b);      /* draw the pointer where it is now */
+        render(mx, my);
     }
 }

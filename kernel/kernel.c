@@ -11,6 +11,7 @@
 #include "heap.h"
 #include "framebuffer.h"
 #include "desktop.h"
+#include "mouse.h"
 #include "shell.h"
 #include "version.h"
 
@@ -47,7 +48,11 @@ void kernel_main(uint32_t mb_magic, uint32_t mb_info) {
     serial_puts("IDT loaded\n");
 
     pic_init();
-    serial_puts("PIC remapped to vectors 32-47; IRQ0 (timer) and IRQ1 (keyboard) unmasked\n");
+    serial_puts("PIC remapped to vectors 32-47; IRQ0 (timer), IRQ1 (keyboard), IRQ12 (mouse) unmasked\n");
+    if (mouse_init() == 0)
+        serial_puts("mouse: PS/2 mouse on, IRQ12\n");
+    else
+        serial_puts("mouse: not found, keyboard only\n");
 
     timer_init();
     serial_puts("PIT programmed to 100 Hz\n");
