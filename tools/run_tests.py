@@ -344,14 +344,28 @@ class Qemu:
                 % (MONITOR_PORT, exc, out))
         return self
 
-    def stop(self):
+    def stop(self, graceful=False):
+        """Stop QEMU. With graceful=True, ask the monitor to quit first.
+
+        A crash build ends in `cli; hlt`, so QEMU never returns to its main
+        loop and never flushes its serial stdio on its own. SIGTERM then throws
+        the buffered tail away, which loses "system halted". Sending `quit`
+        through the monitor makes QEMU exit cleanly and flush.
+        """
+        if self.proc and self.proc.poll() is None and graceful:
+            try:
+                self.monitor.cmd("quit", settle=0.5)
+                self.proc.wait(timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         try:
             if self.monitor:
                 self.monitor.sock.close()
         except OSError:
             pass
         if self.proc:
-            self.proc.terminate()
+            if self.proc.poll() is None:
+                self.proc.terminate()
             try:
                 self.proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
@@ -406,15 +420,15 @@ SHELL_CASES = [
 ]
 
 
-def test_boot_log(log, res):
+def test_boot_log(log, res, text=None):
     """to-test.txt TEST 2: every boot line appears, in order."""
-    if not log.wait_for("framebuffer:", timeout=30):
+    if text is None:
         text = log.all_text()
-        res.add("Boot log reached the framebuffer line", False,
-                "no framebuffer line; serial had %d bytes" % len(text))
-        return False
 
-    text = log.all_text()
+    reached = "framebuffer:" in text
+    res.add("Boot log reached the framebuffer line", reached,
+            "" if reached else "no framebuffer line; serial had %d bytes" % len(text))
+
     missing = [line for line in BOOT_LINES if line not in text]
     res.add("Boot log has every expected line", not missing,
             "missing: %s" % ", ".join(missing) if missing else "10 of 10 lines")
@@ -436,18 +450,20 @@ def test_boot_log(log, res):
     return True
 
 
-def test_selftests(log, res):
+def test_selftests(log, res, text=None):
     """to-test.txt TESTS 20-21: the self-tests ran, not just the boot lines."""
-    text = log.all_text()
+    if text is None:
+        text = log.all_text()
     passed = [name for name in SELFTESTS if name in text]
     res.add("All three self-tests reported PASS", len(passed) == len(SELFTESTS),
             "%d of %d" % (len(passed), len(SELFTESTS)))
 
 
-def test_framebuffer(log, res, shots=False):
+def test_framebuffer(log, res, text=None, shots=False):
     """The desktop framebuffer line, from to-test.txt TEST 2."""
-    text = log.all_text()
-    match = re.search(r"framebuffer: (.+)", text)
+    if text is None:
+        text = log.all_text()
+    match = re.search(r"framebuffer: ([^\r\n]+)", text)
     if not match:
         res.add("Framebuffer reported a mode", False, "no framebuffer line")
         return
@@ -492,10 +508,16 @@ def run_crash_test(res, log):
         qemu = Qemu().start()
         try:
             got = SerialLog(SERIAL)
-            got.wait_for(needle, timeout=25)
-            text = got.all_text()
+            # Wait for the halt itself, not just the exception line, so we know
+            # the whole message is in the log before we ask QEMU to quit.
+            got.wait_for("system halted", timeout=25)
         finally:
-            qemu.stop()
+            # quit first: this build halts the CPU, so QEMU would otherwise be
+            # killed and its buffered serial tail (including "system halted")
+            # would be lost. Read the file only after QEMU has flushed.
+            qemu.stop(graceful=True)
+
+        text = got.all_text()
 
         ok = needle in text and "system halted" in text
         if needle not in text:
@@ -564,11 +586,22 @@ def main():
             return 1
 
         print("\nBoot checks (to-test.txt TEST 2, TESTS 20-22)")
+        # Let the kernel finish booting, then stop QEMU cleanly before reading
+        # the log. Reading while QEMU runs truncates the framebuffer line
+        # mid-write, which made this check flap between "pitch 3200", "pit" and
+        # just "PCI slot 2," on different runs.
+        qemu = Qemu().start()
         log = SerialLog(SERIAL)
-        with Qemu() as qemu:
-            log = SerialLog(SERIAL)
-            for name, fn in ALL_TESTS:
-                fn(log, res)
+        try:
+            # The framebuffer line is the last thing a normal boot prints, so
+            # waiting for its trailing "pitch N" means the boot is complete.
+            log.wait_for("pitch", timeout=30)
+        finally:
+            qemu.stop(graceful=True)
+
+        text = log.all_text()
+        for name, fn in ALL_TESTS:
+            fn(log, res, text)
             if args.shots:
                 ppm = qemu.monitor.screendump(os.path.join(SHOTS, "desktop.ppm"))
                 try:
