@@ -241,19 +241,18 @@ Added:
   written). The Testing section now describes the harness instead of saying the
   monitor scripts are not in the repository.
 
-Status: **PASS on boot and self-tests, PASS on both crash builds.** The harness
-could not be written or debugged on the contributing machine (no WSL, no `nasm`,
-no `gcc`, no QEMU), so it was reviewed and run by JerenzeLevi under WSL2 Ubuntu
-with the full toolchain, who reported:
+Status: **PASS, all 21 checks.** The harness could not be written or debugged on
+the contributing machine (no WSL, no `nasm`, no `gcc`, no QEMU), so it was
+written, reviewed, and run on a real WSL2 Ubuntu toolchain. Three runs:
 
-| Stage | Result |
-|---|---|
-| Boot checks (boot log, 3 self-tests, framebuffer mode) | 5/5 PASS |
-| Shell checks | crashed before any check ran, see fix below |
-| `--with-crash` | never reached, see fix below |
+| Stage | Lev's first run | After the VGA and sendkey fixes | After the flush fixes |
+|---|---|---|---|
+| Boot checks (boot log, self-tests, framebuffer) | 5/5 PASS | 6/6 PASS | 6/6 PASS |
+| Shell checks | crashed before any check ran | 12/12 PASS | 12/12 PASS |
+| `--with-crash` | never reached | 3/3 PASS | 3/3 PASS |
+| **Total** | could not complete | 21/21 | **21/21 PASS** |
 
-Lev ran it under WSL2 Ubuntu with the full toolchain and found two blocking
-bugs, both now fixed:
+Lev's first run found two blocking bugs, both fixed:
 
 1. **`-vga text` is not a QEMU option.** QEMU exits with `unknown vga type:
    text`, then `Monitor()` raised `ConnectionRefusedError` because nothing was
@@ -266,8 +265,30 @@ bugs, both now fixed:
    `type_text(" ".join(keys))`, which sends one key per character and maps
    spaces and punctuation to QEMU key names.
 
-Lev reported that with just those two changes, **all 15 checks pass, including
-both crash builds (`address=0x80000000`).**
+Lev reported that with just those two changes, all 15 of the checks he could
+reach passed. A later run on a second WSL2 Ubuntu machine then exposed two more
+bugs that Lev's run had not hit, because his run crashed before reaching them.
+Both had the same root cause, so they are recorded together.
+
+9. **The harness read the serial log before QEMU had flushed it.** This
+   produced two separate false failures, in two different stages:
+   - *Crash stage.* Both crash builds ended in `cli; hlt` in `isr_dispatch`, so
+     QEMU never returned to its main loop and never flushed its `-serial file:`
+     stdio. The harness saw the `EXCEPTION` line and the page fault address but
+     not `system halted`, and reported "reported the fault but did not halt"
+     for both builds. That was wrong: the kernel had halted correctly, the log
+     was simply incomplete.
+   - *Boot stage.* The framebuffer line was read while QEMU was still running,
+     so it was truncated mid-write. It flapped between three different
+     readings across three runs, `pitch 3200`, then `pit`, then just
+     `PCI slot 2,`, which is what identified the cause.
+
+   `Qemu.stop` now takes `graceful=True`, which sends `quit` over the monitor so
+   QEMU exits cleanly and flushes. The boot stage waits for the trailing
+   `pitch N` before quitting, and the crash stage waits for `system halted`,
+   so both know the message is complete before QEMU is stopped. Both stages
+   then read the log. Both bugs were in the harness only; no kernel source was
+   changed for them.
 
 Four further problems Lev raised were also fixed:
 
@@ -312,11 +333,6 @@ click-hold, right button) and the long-run stability check (D7). The harness
 deliberately does not drive the mouse, because VERIFY Entry 16 notes QEMU's
 PS/2 queue holds 5 packets, so a single `mouse_move` larger than about 600
 pixels leaves the rest pending.
-
-Note on the known limitation from Entry 16: QEMU's PS/2 queue holds 5 packets,
-so a single `mouse_move` larger than about 600 pixels leaves the rest pending.
-The harness deliberately does not drive the mouse, for that reason and because
-mouse edge cases need a human judge.
 
 ## Open items (not yet verified)
 
