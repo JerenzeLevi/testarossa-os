@@ -46,10 +46,6 @@ body:
         ...
         Test 25: PASS
         Test 29: FAIL
-      default: |
-        Test 1:
-        Test 2:
-        Test 3:
     validations:
       required: true
 

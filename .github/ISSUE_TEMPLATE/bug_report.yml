@@ -10,7 +10,7 @@ body:
         expected, and what you saw. A difference from the documented behaviour
         is a bug, even a small one.
 
-  - type: input
+  - type: dropdown
     id: area
     attributes:
       label: Area
@@ -84,7 +84,7 @@ body:
     validations:
       required: false
 
-  - type: input
+  - type: textarea
     id: env
     attributes:
       label: Environment

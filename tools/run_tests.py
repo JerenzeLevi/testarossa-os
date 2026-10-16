@@ -319,12 +319,29 @@ class Qemu:
             "-display", "none",
             "-no-reboot",
         ]
-        cmd += ["-vga", "std"] if not self.no_graphics else ["-vga", "text"]
+        # Both builds use -vga std. The text build is produced by compiling
+        # without the graphics path, so fb_init is skipped and the kernel falls
+        # through to shell_run(). QEMU has no "text" VGA type; asking for one
+        # makes it exit before the monitor socket ever accepts a connection.
+        cmd += ["-vga", "std"]
         print("%s$ %s%s" % (DIM, " ".join(cmd), RESET))
         self.proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                      stderr=subprocess.STDOUT)
         time.sleep(0.5)
-        self.monitor = Monitor()
+        try:
+            self.monitor = Monitor()
+        except OSError as exc:
+            out = ""
+            if self.proc.poll() is not None:
+                # QEMU already exited; surface why instead of a bare refusal.
+                self.proc = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True)
+                out = (self.proc.communicate()[0] or "").strip()
+            self.stop()
+            raise SystemExit(
+                "Could not open the QEMU monitor on port %d: %s\n%s"
+                % (MONITOR_PORT, exc, out))
         return self
 
     def stop(self):
@@ -374,7 +391,10 @@ SHELL_CASES = [
     # (keys to type, what serial must contain afterwards)
     (["help"], "Commands:"),
     (["version"], "Testarossa OS 0.1.0"),
-    (["echo hello there"], "hello there"),
+    # The shell echoes every typed character to serial, so "hello there" is
+    # already in the log before echo runs. Match the start of a line instead,
+    # which only the command's own output can produce.
+    (["echo hello there"], "\nhello there"),
     (["uptime"], "ticks at 100 Hz"),
     (["mem"], "usable"),
     (["ls"], "3 files"),
@@ -399,9 +419,14 @@ def test_boot_log(log, res):
     res.add("Boot log has every expected line", not missing,
             "missing: %s" % ", ".join(missing) if missing else "10 of 10 lines")
 
-    # The lines must appear in the documented order.
+    # The lines must appear in the documented order. Only compare pairs where
+    # both lines were actually found: a missing line yields -1 and would make
+    # an unrelated pair look out of order, failing this check twice for one
+    # problem. The missing-lines check above already reports it.
     positions = [text.find(line) for line in BOOT_LINES]
-    in_order = all(a < b for a, b in zip(positions, positions[1:]) if a >= 0)
+    pairs = [(a, b) for a, b in zip(positions, positions[1:])
+             if a >= 0 and b >= 0]
+    in_order = all(a < b for a, b in pairs)
     res.add("Boot log lines are in order", in_order, "" if in_order else "out of order")
 
     failed = [name for name in SELFTESTS if name not in text]
@@ -442,7 +467,9 @@ def run_shell_tests(log, mon, res, shots=False):
     for keys, expect in SHELL_CASES:
         label = "shell: %s" % " ".join(keys)
         log.new_text()                                     # discard anything pending
-        mon.sendkey(*keys)
+        # sendkey takes one key name per call, so "help" must go as h, e, l, p.
+        # type_text does that and maps punctuation and spaces to QEMU key names.
+        mon.type_text(" ".join(keys))
         mon.sendkey("ret")
         got = log.wait_for(expect, timeout=8)
         res.add(label, got, "" if got else "serial never showed %r" % expect)
@@ -484,6 +511,11 @@ def run_crash_test(res, log):
             res.add("Page fault printed the faulting address", True, addr.group(0))
 
         run_make("clean")
+
+    # Leave the normal kernel behind. The crash builds end on `make clean`,
+    # which would otherwise leave no build at all, exactly like to-test.txt
+    # warns after TESTS 23-24.
+    run_make("all")
 
 
 # --------------------------------------------------------------------------
