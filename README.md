@@ -294,7 +294,7 @@ Known bug, shown on purpose (see to-test.txt, challenge D1):
 
 ## Testing
 
-- **Classmates**: follow [to-test.txt](to-test.txt). It has 24 numbered tests
+- **Classmates**: follow [to-test.txt](to-test.txt). It has 29 numbered tests
   with exact expected output, seven debug challenges, and a template for
   reporting results.
 - **Maintainers**: [VERIFY.md](VERIFY.md) records every milestone, the commands
@@ -315,12 +315,30 @@ The two crash builds are for checking the exception paths only.
 
 ### Automated checks for a maintainer
 
-The QEMU monitor can send keys over TCP. This is how the desktop and shell
-were tested during development: start QEMU with `-vga std` and
-`-monitor tcp:127.0.0.1:55444,server,nowait`, then send lines such as
-`sendkey down`, `sendkey ret`, and `screendump file.ppm`. Convert the PPM to
-PNG for viewing. The helper scripts are not in the repository, because they
-are not part of the OS.
+`tools/run_tests.py` builds the kernel, boots it in QEMU, drives it through the
+monitor socket, and checks the result against what this README documents. It
+covers the boot log, the boot-time self-tests, the framebuffer mode line, the
+shell commands, and the two crash builds.
+
+```sh
+python3 tools/run_tests.py                 # everything
+python3 tools/run_tests.py --boot-only     # boot log and self-tests only
+python3 tools/run_tests.py --shell-only    # shell commands only
+python3 tools/run_tests.py --with-crash    # also fault-test and pf-test
+python3 tools/run_tests.py --shots         # PNG screenshots into build/shots/
+python3 tools/run_tests.py --list          # show the checks, run nothing
+```
+
+It needs the same tools as the build plus Python 3.8 or newer, and no
+third-party Python packages. It exits non-zero if any check fails, so it can be
+used as a pre-commit gate.
+
+It reads the serial log, so it judges what the kernel actually printed. It does
+**not** cover mouse edge cases or long-run stability, because a person judges
+those better than a script. Those still need to-test.txt.
+
+The harness was contributed alongside the issue templates and is recorded in
+VERIFY.md, including which parts have been run and which have not.
 
 ---
 
@@ -509,6 +527,10 @@ kernel/
 
 tools/
   make_font.py       turns a PSF console font into kernel/font8x16.c
+  run_tests.py       automated checks: boots QEMU and verifies boot log, self-tests, shell
+
+.github/
+  ISSUE_TEMPLATE/    bug report and test report forms
 
 docs/
   DESIGN.md          UI, UX, and GUI design (locked, change via issue)
@@ -557,6 +579,7 @@ The source font is in the `console-setup-linux` package (`/usr/share/consolefont
 | [docs/FUNCTIONS.md](docs/FUNCTIONS.md) | Each function: purpose, inputs, status. Planned functions included. |
 | [VERIFY.md](VERIFY.md) | What was tested, how, and the result. |
 | [to-test.txt](to-test.txt) | Step-by-step tests and debug challenges for classmates. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | The short version of the rules below. |
 | [Testarossa_OS_Master_Plan.txt](Testarossa_OS_Master_Plan.txt) | Scope, four-week schedule, and priorities. |
 
 The visual identity is **Testarossa**: midnight navy, violet, electric cyan,

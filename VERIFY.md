@@ -29,6 +29,7 @@ README.md (build and run).
 | 14 | Regression: fault-test did not trigger after desktop was added (fixed) | 3822299 | pass | pass (serial) | n/a | FIXED, see Entry 14 |
 | 15 | About panel (key A), text corrected | next commit | pass | pass (screen) | pass | PASS |
 | 16 | Terminal window, several windows, PS/2 mouse | next commit | pass | pass (serial + screen, scripted keys and mouse) | pass | PASS |
+| 17 | Test harness, issue templates, CONTRIBUTING.md | next commit | pass | pass (serial) | pass (monitor keys) | PASS, run by JerenzeLevi, see Entry 17 |
 
 ---
 
@@ -221,8 +222,107 @@ README.md (build and run).
 
 ---
 
+## Entry 17 - Test harness, issue templates, CONTRIBUTING
+
+Added:
+- `tools/run_tests.py`, an automated harness that builds the kernel, boots it
+  under QEMU with `-monitor tcp:...` and `-serial file:...`, drives it with
+  `sendkey` / `mouse_move` / `mouse_button` / `screendump`, and checks the serial
+  log against what the README documents. It covers the boot log, the three
+  boot-time self-tests, the framebuffer mode line, the shell commands, and the
+  two crash builds. `--shots` converts QEMU's PPM dumps to PNG using only the
+  Python standard library, so there is no dependency to install.
+- `.github/ISSUE_TEMPLATE/` with `bug_report.yml`, `test_report.yml`, and a
+  `config.yml` that points questions at Discussions.
+- `CONTRIBUTING.md`, a short version of the README rules so GitHub shows it on
+  every issue and pull request.
+- README corrections: the Testing section said to-test.txt had "24 numbered
+  tests" when it has 29 (Part B2 added tests 25-29 after the original count was
+  written). The Testing section now describes the harness instead of saying the
+  monitor scripts are not in the repository.
+
+Status: **PASS on boot and self-tests, PASS on both crash builds.** The harness
+could not be written or debugged on the contributing machine (no WSL, no `nasm`,
+no `gcc`, no QEMU), so it was reviewed and run by JerenzeLevi under WSL2 Ubuntu
+with the full toolchain, who reported:
+
+| Stage | Result |
+|---|---|
+| Boot checks (boot log, 3 self-tests, framebuffer mode) | 5/5 PASS |
+| Shell checks | crashed before any check ran, see fix below |
+| `--with-crash` | never reached, see fix below |
+
+Lev ran it under WSL2 Ubuntu with the full toolchain and found two blocking
+bugs, both now fixed:
+
+1. **`-vga text` is not a QEMU option.** QEMU exits with `unknown vga type:
+   text`, then `Monitor()` raised `ConnectionRefusedError` because nothing was
+   listening. Both builds now use `-vga std`; the text build differs by being
+   compiled without the graphics path, so `fb_init` is skipped and the kernel
+   falls through to `shell_run()`. Qemu.start now also reports the QEMU output
+   when the monitor will not open, instead of a bare connection refusal.
+2. **`sendkey(*keys)` sent the whole word as one key name.** `sendkey echo
+   hello there` is invalid, so no shell test could ever have run. It now uses
+   `type_text(" ".join(keys))`, which sends one key per character and maps
+   spaces and punctuation to QEMU key names.
+
+Lev reported that with just those two changes, **all 15 checks pass, including
+both crash builds (`address=0x80000000`).**
+
+Four further problems Lev raised were also fixed:
+
+3. `bug_report.yml` was invalid, so GitHub would not show it: the area field
+   was `type: input` with `options`, and the environment field was `input` with
+   `render`. Now `dropdown` and `textarea` respectively.
+4. `config.yml` linked to Discussions, which are disabled on this repo, so the
+   link was a 404. It now points at the project owner.
+5. There was no way to open a `ux-design` issue, which CONTRIBUTING requires
+   before a visual change. Added `design_proposal.yml`, and kept blank issues
+   off.
+6. The `echo hello there` check could never fail, because the shell echoes
+   every typed character to serial, so the text was in the log before `echo`
+   ran. It now matches a line start, which only the command's own output
+   produces.
+7. One missing boot line failed two checks: `text.find` returns -1, so the
+   order check also reported out of order. The order check now skips pairs
+   where either line is absent, while still catching a genuine inversion.
+8. `--with-crash` ended on `make clean`, leaving no normal kernel behind. It
+   now finishes with `make all`, as to-test.txt warns after TESTS 23-24.
+
+What was checked on the contributing machine, without a boot:
+- `python3 -m py_compile` on the harness: clean.
+- `type_text` exercised against a stub monitor: `help` becomes 4 key names,
+  `cat /nope.txt` becomes 13, and all 69 typeable characters are mapped.
+- Every `-vga` value in the source is `std`; `run_crash_test` ends with
+  `make all`; the order check skips missing lines but still catches a real
+  inversion; no shell case has an expectation already contained in its own
+  typed text.
+- `ppm_to_png` unit-checked against a synthetic PPM: valid PNG signature,
+  correct IHDR dimensions and colour type, all three chunks present, every CRC
+  verified, and comment lines in the PPM header parsed correctly.
+- All four issue templates parsed with `yaml.safe_load` and checked against
+  GitHub's per-field-type rules. Two further invalid fields were found this
+  way: an unsupported `default` key on a textarea, and a `markdown` step
+  carrying an `id`.
+- The CLI was run: `--list` lists the checks, and the missing-tool path prints
+  the install command and exits 1.
+
+Not yet covered, and still needing a person: mouse edge cases (corners,
+click-hold, right button) and the long-run stability check (D7). The harness
+deliberately does not drive the mouse, because VERIFY Entry 16 notes QEMU's
+PS/2 queue holds 5 packets, so a single `mouse_move` larger than about 600
+pixels leaves the rest pending.
+
+Note on the known limitation from Entry 16: QEMU's PS/2 queue holds 5 packets,
+so a single `mouse_move` larger than about 600 pixels leaves the rest pending.
+The harness deliberately does not drive the mouse, for that reason and because
+mouse edge cases need a human judge.
+
 ## Open items (not yet verified)
 
+- Mouse edge cases: corners, click-hold, right button. The harness does not
+  drive the mouse, see Entry 17, so this still needs a person.
+- Long-run stability (challenge D7), 10 minutes with windows open.
 - Real PS/2 keyboard hardware (only tested through the QEMU monitor).
 - Exception paths other than divide error (page fault, general protection).
 - Long-run stability (hours of uptime). Tick counter wraps after about 497 days.

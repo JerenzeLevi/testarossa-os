@@ -1,0 +1,64 @@
+name: Design proposal
+description: Propose a change to the locked design. Required before any visual change.
+title: "[ux-design] "
+labels: ["ux-design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The design in docs/DESIGN.md is locked. Opening an approved issue here is
+        step one of changing it, per CONTRIBUTING.md rule 6. An approved issue does
+        not mean the change is agreed yet; it means it can be discussed without
+        anyone editing code first.
+
+  - type: textarea
+    id: change
+    attributes:
+      label: What do you want to change
+      description: Be specific about colours, layout, wording, or names.
+      render: text
+      placeholder: |
+        The Archive panel title bar is drawn at y=140. Move it to y=136 so it lines
+        up with the rail squares.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current
+    attributes:
+      label: What is it now
+      description: Quote the relevant part of docs/DESIGN.md.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why
+      description: What is wrong or missing today, and how does the change help?
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: mockup
+    attributes:
+      label: Mockup or screenshot
+      description: |
+        Optional. A screenshot of the current screen is usually enough. Do not
+        commit mockup images to the repository.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Please confirm
+      options:
+        - label: I read docs/DESIGN.md and this is a deliberate departure from it.
+          required: true
+        - label: I did not change any code yet. This is a proposal only.
+          required: true
+        - label: This affects keyboard controls or user-facing wording, not just visuals.
+          required: false
