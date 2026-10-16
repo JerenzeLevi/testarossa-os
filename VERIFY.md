@@ -29,6 +29,7 @@ README.md (build and run).
 | 14 | Regression: fault-test did not trigger after desktop was added (fixed) | 3822299 | pass | pass (serial) | n/a | FIXED, see Entry 14 |
 | 15 | About panel (key A), text corrected | next commit | pass | pass (screen) | pass | PASS |
 | 16 | Terminal window, several windows, PS/2 mouse | next commit | pass | pass (serial + screen, scripted keys and mouse) | pass | PASS |
+| 17 | Test harness, issue templates, CONTRIBUTING.md | next commit | **not run** | **not run** | **not run** | **UNVERIFIED, see Entry 17** |
 
 ---
 
@@ -221,8 +222,51 @@ README.md (build and run).
 
 ---
 
+## Entry 17 - Test harness, issue templates, CONTRIBUTING (UNVERIFIED)
+
+Added:
+- `tools/run_tests.py`, an automated harness that builds the kernel, boots it
+  under QEMU with `-monitor tcp:...` and `-serial file:...`, drives it with
+  `sendkey` / `mouse_move` / `mouse_button` / `screendump`, and checks the serial
+  log against what the README documents. It covers the boot log, the three
+  boot-time self-tests, the framebuffer mode line, the shell commands, and the
+  two crash builds. `--shots` converts QEMU's PPM dumps to PNG using only the
+  Python standard library, so there is no dependency to install.
+- `.github/ISSUE_TEMPLATE/` with `bug_report.yml`, `test_report.yml`, and a
+  `config.yml` that points questions at Discussions.
+- `CONTRIBUTING.md`, a short version of the README rules so GitHub shows it on
+  every issue and pull request.
+- README corrections: the Testing section said to-test.txt had "24 numbered
+  tests" when it has 29 (Part B2 added tests 25-29 after the original count was
+  written). The Testing section now describes the harness instead of saying the
+  monitor scripts are not in the repository.
+
+Status: **UNVERIFIED.** This entry was written on a Windows machine with no WSL,
+no `nasm`, no `gcc`, and no QEMU, so the harness could not be run against a real
+kernel. What *was* checked on that machine:
+- `python3 -m py_compile` on the harness: clean.
+- `ppm_to_png` was unit-checked against a synthetic PPM: valid PNG signature,
+  correct IHDR dimensions and colour type, all three chunks present, every CRC
+  verified, and comment lines in the PPM header parsed correctly.
+- The CLI was run: `--list` lists the checks, and the missing-tool path prints
+  the install command and exits 1.
+
+What still needs a real run before this can be marked PASS:
+- Boot log and self-test checks against a live kernel.
+- The eleven shell command checks (Test 14 through 19 are the human-facing
+  equivalents).
+- The two crash builds under `--with-crash`.
+- Whether the QEMU monitor prompt parsing and `sendkey` timing hold up.
+
+Note on the known limitation from Entry 16: QEMU's PS/2 queue holds 5 packets,
+so a single `mouse_move` larger than about 600 pixels leaves the rest pending.
+The harness deliberately does not drive the mouse, for that reason and because
+mouse edge cases need a human judge.
+
 ## Open items (not yet verified)
 
+- `tools/run_tests.py` itself: never run against a live kernel, see Entry 17.
+  Its first job is to produce a real entry here.
 - Real PS/2 keyboard hardware (only tested through the QEMU monitor).
 - Exception paths other than divide error (page fault, general protection).
 - Long-run stability (hours of uptime). Tick counter wraps after about 497 days.

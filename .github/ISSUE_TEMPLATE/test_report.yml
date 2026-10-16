@@ -1,0 +1,110 @@
+name: Test report
+description: Results from working through to-test.txt.
+title: "Test run: "
+labels: ["testing"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this to report the results of to-test.txt. One line per test is
+        enough: `Test 6: PASS`. Only expand on the ones that failed or where
+        you found something interesting.
+
+  - type: input
+    id: tester
+    attributes:
+      label: Your name or handle
+    validations:
+      required: true
+
+  - type: dropdown
+    id: parts
+    attributes:
+      label: Which parts did you run
+      options:
+        - "Part A only (Tests 1-3)"
+        - "Part B only (Tests 4-11)"
+        - "Part B2 only (Tests 25-29)"
+        - "Part C only (Tests 12-19)"
+        - "Part D only (Tests 20-22)"
+        - "Part E only (Tests 23-24)"
+        - "Part F only (Challenges D1-D7)"
+        - "Everything"
+    validations:
+      required: true
+
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: "One line per test, in the form `Test 6: PASS` or `Test 6: FAIL`."
+      render: text
+      placeholder: |
+        Test 1: PASS
+        Test 2: PASS
+        Test 3: PASS
+        ...
+        Test 25: PASS
+        Test 29: FAIL
+      default: |
+        Test 1:
+        Test 2:
+        Test 3:
+    validations:
+      required: true
+
+  - type: textarea
+    id: failures
+    attributes:
+      label: For each failure or finding
+      description: |
+        For each one, write: what you pressed, what you expected, what you saw.
+        This is the part that matters most.
+      render: text
+      placeholder: |
+        Test 29: FAIL
+        Clicked the empty desktop at (400, 500).
+        Expected: nothing happens.
+        Saw: the Archive window came to the top instead.
+    validations:
+      required: false
+
+  - type: textarea
+    id: challenges
+    attributes:
+      label: Debug challenges D1 to D7
+      description: "For each one: found or not found, and exactly how to reproduce it."
+      render: text
+      placeholder: |
+        D1: found. Type 100 letters, press Backspace 50 times, then z. The z lands at column 1 of the first row instead of after the remaining letters.
+        D7: not found. After 10 minutes the heap card had not changed.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screen layout problems, timing problems, or anything confusing in to-test.txt itself.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: On Windows, Win+Shift+S captures a region. Drag the images into this issue.
+      options:
+        - label: I attached a screenshot for the failures above.
+          required: false
+
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Please confirm
+      options:
+        - label: Every result above is from my own run, not from a guess.
+          required: true
+        - label: I tested from a clean build.
+          required: false

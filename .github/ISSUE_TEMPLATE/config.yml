@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea, not a bug
+    url: https://github.com/JerenzeLevi/testarossa-os/discussions
+    about: Ask about how something works, or suggest a feature.
+  - name: Project owner
+    url: https://github.com/JerenzeLevi
+    about: For anything the templates do not fit.

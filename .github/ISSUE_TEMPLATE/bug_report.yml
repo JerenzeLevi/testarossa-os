@@ -1,0 +1,104 @@
+name: Bug report
+description: Something behaves differently from what to-test.txt or the README says it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please keep it factual: what you did, what you
+        expected, and what you saw. A difference from the documented behaviour
+        is a bug, even a small one.
+
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: Where in the project this happens.
+      options:
+        - Boot or build
+        - Desktop or GUI
+        - Terminal or shell
+        - Text shell
+        - Memory, paging, or heap
+        - Mouse or keyboard
+        - Documentation only
+    validations:
+      required: true
+
+  - type: input
+    id: test
+    attributes:
+      label: Test or challenge number
+      description: "For example: Test 6, Test 27, or D1. Write none if it is not from to-test.txt."
+      placeholder: "Test 27"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Which build
+      options:
+        - "make run (desktop)"
+        - "make run-text (text shell)"
+        - "make fault-test"
+        - "make pf-test"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did
+      description: Exact steps, or the keys and clicks you used.
+      placeholder: |
+        1. Opened the Terminal with t
+        2. Typed help and pressed Enter
+        3. Pressed Esc
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Quote the EXPECTED line from to-test.txt if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What you saw
+    validations:
+      required: true
+
+  - type: textarea
+    id: serial
+    attributes:
+      label: Serial log lines, if any
+      description: Copy the lines from your terminal that run `make run` prints. They often show the cause.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: "Windows version, WSL version, and the output of: uname -a"
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Please confirm
+      options:
+        - label: I read to-test.txt first, so I know the expected behaviour.
+          required: true
+        - label: I can reproduce this from a clean build (`make clean && make`).
+          required: false

@@ -3,3 +3,5 @@ CLAUDE.md
 CLAUDE.local.md
 *.o
 *.elf
+__pycache__/
+*.pyc
